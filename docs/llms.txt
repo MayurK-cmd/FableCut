@@ -31,7 +31,7 @@ about 150 ms. A human and an agent can work the same timeline at once.
 
 ## Links
 
-- Site: https://ronak-create.github.io/FableCut/
+- Site: https://fablecut.space/
 - Repository: https://github.com/ronak-create/FableCut
 - Agent manual (full schema, semantics, recipes): https://github.com/ronak-create/FableCut/blob/main/CLAUDE.md
 - README: https://github.com/ronak-create/FableCut/blob/main/README.md

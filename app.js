@@ -538,6 +538,7 @@ const els = {
   sourceScrubRange: $("sourceScrubRange"), sourceScrubIn: $("sourceScrubIn"),
   sourceScrubOut: $("sourceScrubOut"), sourceScrubHead: $("sourceScrubHead"),
   btnInsert: $("btnInsert"), btnReplace: $("btnReplace"),
+  vuMeter: $("vuMeter"),
   exportSetup: $("exportSetup"), engineFast: $("engineFast"), engineRealtime: $("engineRealtime"),
   exportProfileRow: $("exportProfileRow"),
   exportProfileSel: $("exportProfileSel"), exportProfileNote: $("exportProfileNote"),
@@ -5669,6 +5670,7 @@ function syncMeterTracksExpandedUI() {
       meterState.lastHold[id] = -1;
     }
   }
+  fitVuMeter();
 }
 function toggleMeterTracksExpanded(ev) {
   if (ev) { ev.preventDefault(); ev.stopPropagation(); }
@@ -5876,6 +5878,29 @@ function buildMeterDOM() {
   root.appendChild(row);
   syncMeterTracksExpandedUI();
 }
+let vuMeterScale = 1;
+/** Fit the VU overlay to the stage with a compositor scale — no canvas resize. */
+function fitVuMeter() {
+  const meter = els.vuMeter;
+  const stage = els.monitorStage;
+  if (!meter || !stage) return;
+  const naturalH = meter.offsetHeight;
+  const naturalW = meter.offsetWidth;
+  if (!naturalH || !naturalW) {
+    if (vuMeterScale !== 1) {
+      vuMeterScale = 1;
+      meter.style.transform = "";
+    }
+    return;
+  }
+  const sx = (stage.clientWidth - 4) / naturalW;
+  const sy = (stage.clientHeight - 12) / naturalH;
+  const next = Math.max(0, Math.min(1, sx, sy));
+  if (Math.abs(next - vuMeterScale) < 0.001) return;
+  vuMeterScale = next;
+  meter.style.transform = next >= 0.999 ? "" : "scale(" + next + ")";
+}
+
 function rmsToDb(rms) {
   return rms > 1e-8 ? 20 * Math.log10(rms) : METER_DB_MIN;
 }
@@ -7555,6 +7580,7 @@ function ensureFont(name) {
 /* ── Main loop ── */
 let lastTs = null;
 let exportWindow = null;
+let playheadPx = -1;
 function loop(ts) {
   if (lastTs == null) lastTs = ts;
   const dt = Math.min(0.1, (ts - lastTs) / 1000);
@@ -7595,7 +7621,11 @@ function loop(ts) {
     }
   }
   if (state.dirtyTimeline) rebuildClips();
-  els.playhead.style.left = state.time * state.pps + "px";
+  const phX = Math.round(state.time * state.pps);
+  if (phX !== playheadPx) {
+    playheadPx = phX;
+    els.playhead.style.left = phX + "px";
+  }
   drawRuler();
   if (!isSourceMode()) updateSafeOverlay();
   updateKfGraphs();
@@ -8104,6 +8134,7 @@ function createExportUploader(sessId, { batchItems, batchBytes, signal, getError
       flush(false);
     },
     flush,
+    inFlight() { return uploadsInFlight; },
     done() { flush(true); return uploadTail; },
     waitBackpressure(max = 2) {
       return new Promise((res, rej) => {
@@ -8124,23 +8155,41 @@ function createExportUploader(sessId, { batchItems, batchBytes, signal, getError
 /* ── Fast / WebCodecs frame sync ──
    HTMLVideoElement has no “step one frame” API — assigning currentTime always
    seeks. On the export hot path a seek-per-frame is the dominant cost, so:
-     • already within ½ media-frame → no-op
+     • already showing the target (requestVideoFrameCallback mediaTime) → no-op
      • forward through a shot, buffered → play + requestVideoFrameCallback.
-       If the last compositor tick was faster than a timeline frame, leave the
-       element playing (no play/pause per frame). If it was slower, pause after
-       the hit so the file cannot overrun.
-     • reverse / large jump / unbuffered / overshoot → hard seek
+       Settle on the *presented* frame, not currentTime (the clock runs ahead of
+       the picture). If the last compositor tick was fast and the encode queue is
+       not deep, leave the element playing. A slow tick or a backed-up queue
+       pauses after the hit so the decoder cannot overrun during JPEG/encode wait.
+     • reverse / large jump / unbuffered / overshoot → hard seek (currentTime,
+       never fastSeek: fastSeek snaps to a nearby keyframe and repeats frames)
    Incoming clips are seek-prefetched ~1 s before they become active. */
 let exportSeekClock = 0;
 function restoreExportVideoState() {
   exportSeekClock = 0;
+  pauseExportVideos();
   for (const el of runtime.clipEls.values()) {
-    try { if (!el.paused) el.pause(); } catch { }
     if (el._fcPrevMuted != null) {
       try { el.muted = el._fcPrevMuted; } catch { }
       el._fcPrevMuted = null;
     }
   }
+}
+function pauseExportVideos() {
+  for (const el of runtime.clipEls.values()) {
+    try { if (!el.paused) el.pause(); } catch { }
+  }
+}
+/** How long the prior export tick took (seek → draw). Used to decide play-ahead. */
+function exportLoopLag(frameMs) {
+  const now = performance.now();
+  if (exportSeekClock <= 0) return { lagMs: 0, fast: true, behind: false };
+  const lagMs = now - exportSeekClock;
+  return {
+    lagMs,
+    fast: lagMs < frameMs * 2,
+    behind: lagMs > frameMs * 3,
+  };
 }
 function videoRangeBuffered(el, from, to) {
   try {
@@ -8152,37 +8201,94 @@ function videoRangeBuffered(el, from, to) {
   } catch { }
   return el.readyState >= 3;
 }
-function assignVideoTime(el, mt) {
-  if (typeof el.fastSeek === "function") {
+function notePresented(el, mediaTime) {
+  if (Number.isFinite(mediaTime)) el._fcPresentedTime = mediaTime;
+}
+function presentedClose(el, mt, eps) {
+  return el._fcPresentedTime != null && Math.abs(el._fcPresentedTime - mt) <= eps;
+}
+function waitForPresentedFrame(el, timeoutMs = 80) {
+  return new Promise((res, rej) => {
+    if (typeof el.requestVideoFrameCallback !== "function") {
+      notePresented(el, el.currentTime);
+      res();
+      return;
+    }
+    let done = false;
+    const finishOk = (meta) => {
+      const mediaTime = meta?.mediaTime;
+      if (!Number.isFinite(mediaTime)) return;
+      if (done) return;
+      done = true;
+      clearTimeout(tm);
+      notePresented(el, mediaTime);
+      res();
+    };
+    const tm = setTimeout(() => {
+      if (done) return;
+      done = true;
+      rej(new Error("presented frame timeout"));
+    }, timeoutMs);
+    el.requestVideoFrameCallback((_n, meta) => finishOk(meta));
+  });
+}
+function assignVideoTime(el, mt, accurate) {
+  if (!accurate) el._fcPresentedTime = null;
+  if (!accurate && typeof el.fastSeek === "function") {
     try { el.fastSeek(mt); return; } catch { }
   }
   el.currentTime = mt;
 }
-function hardSeekVideo(el, mt) {
-  return new Promise((res) => {
-    if (Math.abs(el.currentTime - mt) < 1e-4 && el.readyState >= 2) { res(); return; }
+function hardSeekVideo(el, mt, attempt = 0) {
+  const hasRvfc = typeof el.requestVideoFrameCallback === "function";
+  const maxAttempts = 3;
+  return new Promise((res, rej) => {
+    const after = () => waitForPresentedFrame(el)
+      .then(res)
+      .catch((err) => {
+        if (attempt + 1 >= maxAttempts) rej(err);
+        else hardSeekVideo(el, mt, attempt + 1).then(res, rej);
+      });
+    if (presentedClose(el, mt, 0.002) && el.readyState >= 2) {
+      res();
+      return;
+    }
+    // No rvfc — paused on the right clock is the only signal we have.
+    if (!hasRvfc && el._fcPresentedTime == null && el.paused && el.readyState >= 2
+        && Math.abs(el.currentTime - mt) < 1e-4) {
+      notePresented(el, el.currentTime);
+      res();
+      return;
+    }
+    el._fcPresentedTime = null;
     const done = () => {
       clearTimeout(tm);
       el.removeEventListener("seeked", done);
-      res();
+      after();
     };
     const tm = setTimeout(done, 1500);
     el.addEventListener("seeked", done);
     try {
       if (!el.paused) el.pause();
-      assignVideoTime(el, mt);
+      // Same currentTime does not fire seeked — nudge so the decoder must present mt.
+      if (Math.abs(el.currentTime - mt) < 1e-4) {
+        const nudge = mt >= 0.001 ? mt - 0.001 : mt + 0.001;
+        try { el.currentTime = nudge; } catch { }
+      }
+      assignVideoTime(el, mt, true);
     } catch { done(); }
   });
 }
-/** Play forward until mediaTime reaches mt. Pause afterwards unless keepPlaying
-    — a free-running element overruns while the compositor does SVG/encode/HTTP. */
+/** Play forward until a *presented* frame reaches mt. Pause afterwards unless
+    keepPlaying — a free-running element overruns while JPEG encode/HTTP stalls. */
 function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
-  return new Promise((res) => {
+  return new Promise((res, rej) => {
     let settled = false;
     let rvfcId = null;
     let poll = null;
     if (el._fcPrevMuted == null) el._fcPrevMuted = el.muted;
     const wasPlaying = !el.paused;
+    const slop = Math.min(eps, 0.002);
     const cleanup = () => {
       clearTimeout(tm);
       if (poll) { clearInterval(poll); poll = null; }
@@ -8194,19 +8300,38 @@ function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
         try { el.pause(); } catch { }
       }
     };
-    const finish = () => {
+    const finish = (presented) => {
+      if (settled) return;
+      if (!Number.isFinite(presented)) return;
+      settled = true;
+      notePresented(el, presented);
+      cleanup();
+      // Presented picture is authoritative — currentTime often runs ahead of
+      // the displayed frame. Accept when within [mt-slop, mt]; hard-seek when
+      // play-ahead overshoots past mt or the picture is still short.
+      const pictureShort = presented < mt - slop * 2;
+      const pictureOvershoot = presented > mt;
+      if (pictureOvershoot
+        || (pictureShort && Math.abs(el.currentTime - mt) > Math.max(eps * 2, 0.008)))
+        hardSeekVideo(el, mt).then(res, rej);
+      else res();
+    };
+    if (presentedClose(el, mt, slop) && el.readyState >= 2) {
+      if (!keepPlaying) { try { el.pause(); } catch { } }
+      res();
+      return;
+    }
+    const remain = Math.max(0, mt - el.currentTime);
+    const tm = setTimeout(() => {
       if (settled) return;
       settled = true;
       cleanup();
-      // Play can land a hair early/late — snap only when meaningfully off
-      if (Math.abs(el.currentTime - mt) > eps * 2)
-        hardSeekVideo(el, mt).then(res);
-      else res();
-    };
-    const remain = Math.max(0, mt - el.currentTime);
-    const tm = setTimeout(finish, Math.min(3000, 400 + (remain * 1000) / Math.max(0.1, rate) * 2.5));
+      hardSeekVideo(el, mt).then(res, rej);
+    }, Math.min(3000, 400 + (remain * 1000) / Math.max(0.1, rate) * 2.5));
     const check = (mediaTime) => {
-      if ((mediaTime != null ? mediaTime : el.currentTime) >= mt - eps) finish();
+      // Presented frame only — currentTime finishes half a frame early and
+      // canvas still holds the previous picture (duplicate Fast frames).
+      if (mediaTime != null && mediaTime >= mt - slop) finish(mediaTime);
     };
     try { el.playbackRate = clamp(rate, 0.1, 8); } catch { }
     // muted → autoplay-friendly after async export setup (user-gesture may be gone)
@@ -8221,7 +8346,6 @@ function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
     } else {
       poll = setInterval(() => check(el.currentTime), 4);
     }
-    check(el.currentTime);
     if (wasPlaying) return;
     const p = el.play();
     if (p && typeof p.catch === "function") {
@@ -8229,7 +8353,7 @@ function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
         if (settled) return;
         settled = true;
         cleanup();
-        hardSeekVideo(el, mt).then(res);
+        hardSeekVideo(el, mt).then(res, rej);
       });
     }
   });
@@ -8250,15 +8374,15 @@ function prefetchExportVideos(t) {
     } catch { }
   }
 }
-async function seekVideosTo(t) {
+async function seekVideosTo(t, { queueBusy } = {}) {
   const fps = projectFps();
-  const now = performance.now();
   const frameMs = 1000 / fps;
-  // Last compositor+upload tick faster than a timeline frame → decoder can
-  // stay in play() through the shot. Slower → pause so we don't
-  // overshoot and seek backwards every frame.
-  const keepPlaying = exportSeekClock > 0 && (now - exportSeekClock) < frameMs * 1.4;
-  exportSeekClock = now;
+  const { fast, behind } = exportLoopLag(frameMs);
+  exportSeekClock = performance.now();
+  // Stay in play() only when the last tick was fast, the encode queue is not
+  // deep, and we are not falling behind — avoids random mid-shot seek hitches
+  // from pausing on every JPEG/upload blip.
+  const keepPlaying = fast && !behind && !queueBusy;
   const waits = [];
   const restoreGain = [];
   for (const c of project.clips) {
@@ -8278,18 +8402,19 @@ async function seekVideosTo(t) {
     const mt = mediaTimeAt(c, t);
     const local = clamp(t - c.start, 0, c.duration);
     const sp = clamp(kfChannel(c, "speed", local, clipSpeed(c)), 0.1, 8);
-    // One timeline frame in media-time; half-frame = “already on the right frame”
+    // One timeline frame in media-time
     const mediaFrame = sp / fps;
     const eps = 0.5 * mediaFrame;
-    const err = el.currentTime - mt;
-    if (el.readyState >= 2 && Math.abs(err) <= eps) {
+    const slop = Math.min(eps, 0.002);
+    // Skip only when the *presented* picture is already the target. currentTime
+    // within ½ frame is not enough — Fast export used to snapshot the previous
+    // decoded frame twice while the clock had already ticked.
+    if (el.readyState >= 2 && presentedClose(el, mt, slop)) {
       if (keepPlaying && !el.paused) {
         try { el.playbackRate = sp; } catch { }
       }
       continue;
     }
-    // Keep-playing path: a slightly late displayed frame is cheaper than a seek
-    if (keepPlaying && !el.paused && err > 0 && err <= eps * 2) continue;
 
     const g = runtime.clipGain.get(c.id);
     if (g) {
@@ -8472,11 +8597,15 @@ async function fastExport() {
     for (let f = 0; f < frames; f++) {
       if (renderCancelled || signal.aborted) throw new Error("cancelled");
       if (uploadError) throw uploadError;
-      await waitPixels(3);
-      await up.waitBackpressure(2);
+      // Let workers run ahead; only pause the decoder when the queue is deep
+      // enough that play-ahead would overrun during the wait (not on every blip).
+      const queueBusy = pixelsInflight > 6 || up.inFlight() > 4;
+      if (pixelsInflight > 4) pauseExportVideos();
+      await waitPixels(6);
+      await up.waitBackpressure(4);
       const t = t0 + f / fps;
       state.time = t;
-      await seekVideosTo(t);
+      await seekVideosTo(t, { queueBusy });
       await prepareFrameAssets(t);
       drawFrame(t);
       const snap = snapshotExportFrame();
@@ -8644,11 +8773,13 @@ async function webCodecsExport() {
     for (let f = 0; f < frames; f++) {
       if (renderCancelled || signal.aborted) throw new Error("cancelled");
       if (uploadError) throw uploadError;
-      await up.waitBackpressure(2);
-      await waitEncodeQueue(encoder, 2, { signal, getError: () => uploadError });
+      const queueBusy = up.inFlight() > 4 || encoder.encodeQueueSize > 4;
+      if (up.inFlight() > 3 || encoder.encodeQueueSize > 3) pauseExportVideos();
+      await up.waitBackpressure(4);
+      await waitEncodeQueue(encoder, 4, { signal, getError: () => uploadError });
       const t = t0 + f / fps;
       state.time = t;
-      await seekVideosTo(t);
+      await seekVideosTo(t, { queueBusy });
       await prepareFrameAssets(t);
       drawFrame(t);
       // Absolute µs timestamps; duration = delta so average rate stays exact
@@ -9208,6 +9339,7 @@ els.monitorScroll.addEventListener("scroll", () => {
 });
 if (typeof ResizeObserver !== "undefined") {
   new ResizeObserver(() => {
+    fitVuMeter();
     if (state.viewZoom <= 1.001) {
       monitorFitCache = null;
       if (state.guides) updateSafeOverlay();
