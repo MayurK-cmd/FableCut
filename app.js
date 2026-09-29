@@ -1159,18 +1159,8 @@ function applyProject(data) {
     releaseClipEl(id);
   if (runtime.audio) syncAudioGraphTracks();
   // Drop Source if its media vanished from the new document
-  if (state.source.mediaId && !getMedia(state.source.mediaId)) {
-    pauseSource();
-    releaseSourceEl();
-    state.source.mediaId = null;
-    state.source.fromClipId = null;
-    state.source.in = state.source.out = null;
-    state.source.time = 0;
-    if (isSourceMode()) setMonitorMode("program");
-  } else if (state.source.mediaId) {
-    releaseSourceEl(); // force rebuild against possibly new src
-    ensureSourceEl(getMedia(state.source.mediaId));
-  }
+  if (state.source.mediaId && !getMedia(state.source.mediaId)) clearSource();
+  else if (state.source.mediaId) restoreSourceAfterReload();
   els.preview.width = project.width; els.preview.height = project.height;
   updateMonitorRes();
   syncAspectSel();
@@ -1640,6 +1630,7 @@ function renderBin() {
       pushUndo();
       project.media = project.media.filter((x) => x.id !== m.id);
       project.clips = project.clips.filter((c) => c.mediaId !== m.id);
+      if (state.source.mediaId === m.id) clearSource();
       renderBin(); scheduleSave(); renderInspector();
     });
     return item;
@@ -2093,11 +2084,20 @@ function toastSourceWindowMissing() {
 }
 /** Tracks that receive newly placed Source clips (picture + linked stems). */
 function sourceEditTracks(m) {
-  let trackId = defaultTrackFor(m.kind);
-  const tr = TRACKS.find((t) => t.id === trackId);
-  if (!tr || (m.kind === "audio") !== (tr.kind === "audio")) trackId = defaultTrackFor(m.kind);
-  if (m.kind === "video") return [trackId, "A1", "A2"];
-  return [trackId];
+  // Resolve against the live track list: any lane (V1 and A1 included) can be
+  // removed, and a clip on a missing lane would be invisible.
+  const lane = m.kind === "audio" ? "audio" : "video";
+  const preferred = defaultTrackFor(m.kind);
+  let pictureTrack = TRACKS.some((t) => t.id === preferred && t.kind === lane) ? preferred : null;
+  if (!pictureTrack) {
+    // Lowest-numbered lane of the right kind (V1-ish / A1-ish).
+    const ids = TRACKS.filter((t) => t.kind === lane).map((t) => t.id)
+      .sort((a, b) => (parseInt(a.slice(1), 10) || 0) - (parseInt(b.slice(1), 10) || 0));
+    pictureTrack = ids[0] || null;
+  }
+  if (!pictureTrack) return [];
+  if (m.kind === "video") return [pictureTrack, ...audioTrackIds().slice(0, 2)];
+  return [pictureTrack];
 }
 /** Tracks punched by Replace: placement lanes, plus any overlapping linked
  *  AV stems on A3+ (`audioChannel` set). Leaves V2/V3 and standalone music alone. */
@@ -2184,11 +2184,12 @@ function punchTrackRange(trackId, t0, t1) {
           c.keyframes = shiftKF(c.keyframes, 0, c.duration);
         } else if (end - t1 >= MIN_DUR) {
           // Head is the stub → keep the tail, start it at t1.
+          const oldStart = c.start;
           c.in = +(mediaTimeAt(c, t1)).toFixed(4);
           c.duration = +(end - t1).toFixed(4);
           c.start = +t1.toFixed(4);
           c.transitionIn = undefined;
-          c.keyframes = shiftKF(c.keyframes, t1 - c.start, c.duration);
+          c.keyframes = shiftKF(c.keyframes, t1 - oldStart, c.duration);
         } else {
           // Stubs on both sides → effectively inside the window.
           releaseClipEl(c.id);
@@ -2222,11 +2223,12 @@ function punchTrackRange(trackId, t0, t1) {
     }
     // Tail overhang: starts inside the window → trim In to t1
     if (c.start < t1 - eps && end > t1 + eps) {
+      const oldStart = c.start;
       c.in = +(mediaTimeAt(c, t1)).toFixed(4);
       c.duration = +(end - t1).toFixed(4);
       c.start = +t1.toFixed(4);
       c.transitionIn = undefined;
-      c.keyframes = shiftKF(c.keyframes, t1 - c.start, c.duration);
+      c.keyframes = shiftKF(c.keyframes, t1 - oldStart, c.duration);
     }
   }
 }
@@ -2293,6 +2295,10 @@ function replaceSourceAtPlayhead() {
   if (state.source.fromClipId) {
     const existing = getClip(state.source.fromClipId);
     if (existing && existing.mediaId === win.m.id) {
+      if (!isTrackEnabled(existing.track)) {
+        toast("Clip is on a disabled track — enable it to replace");
+        return;
+      }
       applySourceWindowToClip(existing, win);
       return;
     }
@@ -4735,6 +4741,40 @@ function persistSourceMarks() {
   const id = state.source.mediaId;
   if (!id) return;
   runtime.sourceMarks.set(id, { in: state.source.in, out: state.source.out });
+}
+/** Unload the Source monitor — its media was deleted or vanished on reload. */
+function clearSource() {
+  if (state.source.mediaId) runtime.sourceMarks.delete(state.source.mediaId);
+  pauseSource();
+  releaseSourceEl();
+  state.source.mediaId = null;
+  state.source.fromClipId = null;
+  state.source.in = state.source.out = null;
+  state.source.time = 0;
+  if (isSourceMode()) setMonitorMode("program");
+  else syncMonitorModeUI();
+}
+/** Rebuild the Source element after a project reload without losing the
+ *  Source playhead or marks (clamped if the media got shorter). */
+function restoreSourceAfterReload() {
+  const m = sourceMedia();
+  if (!m) return;
+  if (state.source.fromClipId && !getClip(state.source.fromClipId)) state.source.fromClipId = null;
+  const dur = sourceDur();
+  if (dur > 0) {
+    if (state.source.in != null) state.source.in = clamp(state.source.in, 0, dur);
+    if (state.source.out != null) state.source.out = clamp(state.source.out, 0, dur);
+    state.source.time = clamp(state.source.time, 0, dur);
+  }
+  pauseSource(); // adopt the decoded playhead before the element goes away
+  releaseSourceEl(); // force rebuild against possibly new src
+  const el = ensureSourceEl(m);
+  if (el) {
+    const seek = () => seekSourceEl(state.source.time);
+    if (el.readyState >= 1) seek();
+    else el.addEventListener("loadedmetadata", seek, { once: true });
+  }
+  syncMonitorModeUI();
 }
 function syncMonitorModeUI() {
   const src = isSourceMode();
@@ -9577,18 +9617,22 @@ window.addEventListener("keydown", (e) => {
     e.preventDefault();
     goToEditPoint(k === "ArrowDown" ? 1 : -1);
   }
-  else if (k === "ArrowLeft") {
+  // Transport keys claim the event so the focused timeline/monitor scroller
+  // doesn't also scroll. Alt+←/→ stays with the browser (history navigation).
+  else if (k === "ArrowLeft" && !e.altKey) {
+    e.preventDefault();
     const dt = e.shiftKey ? 1 : 1 / projectFps();
     if (isSourceMode()) setSourceTime(state.source.time - dt);
     else setTime(state.time - dt);
   }
-  else if (k === "ArrowRight") {
+  else if (k === "ArrowRight" && !e.altKey) {
+    e.preventDefault();
     const dt = e.shiftKey ? 1 : 1 / projectFps();
     if (isSourceMode()) setSourceTime(state.source.time + dt);
     else setTime(state.time + dt);
   }
-  else if (k === "Home") gotoTransportHome();
-  else if (k === "End") gotoTransportEnd();
+  else if (k === "Home" && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); gotoTransportHome(); }
+  else if (k === "End" && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); gotoTransportEnd(); }
   else if (k === "[") trimToPlayhead("in");
   else if (k === "]") trimToPlayhead("out");
   else if (k === "m" || k === "M") toggleMarker();
