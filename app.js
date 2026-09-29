@@ -3263,6 +3263,17 @@ function maxClipDur(c) {
   if (!m || !(m.duration > 0)) return Infinity;
   return Math.max(MIN_DUR, (m.duration - c.in) / clipSpeed(c));
 }
+/* A linked group shares its timing, but a partner may run at a different
+   speed (links are inferred from timing alone), so every source limit is the
+   tightest across the whole group, never just the clip that was grabbed. */
+/** Longest c's linked group may run before any member runs out of source. */
+function groupMaxDur(c) {
+  return Math.min(...withLinked([c]).map(maxClipDur));
+}
+/** How far c's group can pull its head back before any member reaches source 0. */
+function groupHeadRoom(c) {
+  return Math.min(...withLinked([c]).map((x) => (isMediaClip(x) ? x.in / clipSpeed(x) : Infinity)));
+}
 /** The clip butting against c's head ("in") or tail ("out") on its track. */
 function adjacentClip(c, side) {
   const t = side === "in" ? c.start : clipEnd(c);
@@ -3314,8 +3325,8 @@ function rippleTrim(c, side, delta) {
   if (group.some(isClipLocked)) return TRIM_LOCKED;
   const oldEnd = clipEnd(c);
   let lo, hi;
-  if (side === "out") { lo = MIN_DUR - c.duration; hi = maxClipDur(c) - c.duration; }
-  else { lo = isMediaClip(c) ? -c.in / clipSpeed(c) : -Infinity; hi = c.duration - MIN_DUR; }
+  if (side === "out") { lo = MIN_DUR - c.duration; hi = groupMaxDur(c) - c.duration; }
+  else { lo = -groupHeadRoom(c); hi = c.duration - MIN_DUR; }
   const groupIds = new Set(group.map((x) => x.id));
   const lanes = new Set(group.map((x) => x.track));
   const movers = withoutLocked(withLinked(project.clips.filter((x) => !groupIds.has(x.id) &&
@@ -3349,11 +3360,11 @@ function rollEdit(c, side, delta) {
   const right = side === "out" ? adjacentClip(c, "out") : c;
   if ([left, right].some((x) => x && isGroupLocked(x))) return TRIM_LOCKED;
   let lo = -Infinity, hi = Infinity;
-  if (left) { lo = MIN_DUR - left.duration; hi = maxClipDur(left) - left.duration; }
+  if (left) { lo = MIN_DUR - left.duration; hi = groupMaxDur(left) - left.duration; }
   else lo = -freeRoom(right, "in");
   if (right) {
     hi = Math.min(hi, right.duration - MIN_DUR);
-    if (isMediaClip(right)) lo = Math.max(lo, -right.in / clipSpeed(right));
+    lo = Math.max(lo, -groupHeadRoom(right));
   } else hi = Math.min(hi, freeRoom(left, "out"));
   const d = clampD(delta, lo, hi);
   if (Math.abs(d) < 1e-9) return 0;
@@ -3368,13 +3379,19 @@ function slipClip(c, delta) {
   if (!isMediaClip(c)) return "Slip needs a video or audio clip — stills and titles have no source time";
   if (isGroupLocked(c)) return TRIM_LOCKED;
   const sp = clipSpeed(c);
-  const m = getMedia(c.mediaId);
-  const span = mediaTimeAt(c, clipEnd(c)) - c.in;
-  const maxIn = m && m.duration > 0 ? Math.max(0, m.duration - span) : Infinity;
+  const group = withLinked([c]);
+  // The shared In may go no later than the tightest member allows: each one
+  // consumes its own span of source (speed can differ across the group).
+  let maxIn = Infinity;
+  for (const x of group) {
+    if (!isMediaClip(x)) continue;
+    const m = getMedia(x.mediaId);
+    if (m && m.duration > 0) maxIn = Math.min(maxIn, Math.max(0, m.duration - (mediaTimeAt(x, clipEnd(x)) - x.in)));
+  }
   const newIn = clampD(c.in - delta * sp, 0, maxIn);
   const d = (c.in - newIn) / sp;
   if (Math.abs(d) < 1e-9) return 0;
-  for (const x of withLinked([c])) x.in = +newIn.toFixed(4);
+  for (const x of group) x.in = +newIn.toFixed(4);
   return d;
 }
 /** Slide (U): move c along its track; the clip before it lengthens or
@@ -3384,10 +3401,10 @@ function slideClip(c, delta) {
   const prev = adjacentClip(c, "in"), next = adjacentClip(c, "out");
   if ([c, prev, next].some((x) => x && isGroupLocked(x))) return TRIM_LOCKED;
   let lo = prev ? MIN_DUR - prev.duration : -freeRoom(c, "in");
-  let hi = prev ? maxClipDur(prev) - prev.duration : Infinity;
+  let hi = prev ? groupMaxDur(prev) - prev.duration : Infinity;
   if (next) {
     hi = Math.min(hi, next.duration - MIN_DUR);
-    if (isMediaClip(next)) lo = Math.max(lo, -next.in / clipSpeed(next));
+    lo = Math.max(lo, -groupHeadRoom(next));
   } else hi = Math.min(hi, freeRoom(c, "out"));
   const d = clampD(delta, lo, hi);
   if (Math.abs(d) < 1e-9) return 0;

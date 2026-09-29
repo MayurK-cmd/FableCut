@@ -227,3 +227,42 @@ test("lift and extract need both IN and OUT", () => {
   assert.match(w.calls.toast[0], /Set IN and OUT/);
   assert.equal(w.calls.undo, 0);
 });
+
+/* ── Linked partners at a different speed ────────────────────────────────── */
+
+test("every tool respects the tightest linked partner's source", () => {
+  // Links are inferred from timing alone, so a partner can run at another
+  // speed. B's picture runs at 1×, its linked stem at 2×; the source is 20 s.
+  const media = [{ id: "m1", kind: "video", duration: 20 }];
+  const reel2x = () => world({ media, clips: [
+    clip("A", "V1", 0, 3, { in: 0, linkGroup: "gA" }),
+    clip("B", "V1", 3, 3, { in: 4, linkGroup: "gB" }),
+    clip("b", "A1", 3, 3, { in: 4, linkGroup: "gB", props: { speed: 2 } }),
+    clip("C", "V1", 6, 3, { in: 10, linkGroup: "gC" }),
+  ] });
+  const srcEnd = (c) => c.in + c.duration * (c.props.speed || 1);
+
+  let w = reel2x();
+  near(w.rippleTrim(w.byId("B"), "in", -10), -2, "the 2× stem has only 2 s of pre-roll");
+  near(w.byId("b").in, 0, "stem stops at source 0, not below");
+
+  w = reel2x();
+  near(w.rippleTrim(w.byId("B"), "out", 20), 5, "the 2× stem runs out of source first");
+  near(srcEnd(w.byId("b")), 20, "stem ends exactly at the source end");
+
+  w = reel2x();
+  near(w.slipClip(w.byId("B"), -100), -10, "slip stops where the stem's 6 s span hits the end");
+  near(srcEnd(w.byId("b")), 20, "stem ends exactly at the source end");
+
+  w = reel2x();
+  near(w.rollEdit(w.byId("A"), "out", -5), -2, "rolling the cut left is limited by the stem's pre-roll");
+  near(w.byId("b").in, 0);
+
+  w = world({ media, clips: [
+    clip("X", "V1", 0, 3), clip("Y", "V1", 3, 3),
+    clip("Z", "V1", 6, 3, { in: 2, linkGroup: "gZ" }),
+    clip("z", "A1", 6, 3, { in: 2, linkGroup: "gZ", props: { speed: 2 } }),
+  ] });
+  near(w.slideClip(w.byId("Y"), -5), -1, "sliding left is limited by the 2× stem after it");
+  near(w.byId("z").in, 0);
+});
