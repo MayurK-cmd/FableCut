@@ -511,7 +511,10 @@ then `,` (insert icon) splits straddling clips on enabled tracks at the
 playhead, ripples everything later to the right by the window length, and drops
 the Source window in — video brings its linked audio stems. `.` (replace icon)
 overwrites instead: punches the placement tracks (V1 + linked stems) over
-[playhead, +window) with no ripple. When Source was loaded *from* a timeline
+[playhead, +window) with no ripple. Placement lanes are resolved against the
+live track list — if V1 / A1 / A2 were removed, the lowest remaining lanes of
+the right kind are used instead. A clip loaded from a disabled track can't be
+retargeted with `.` (toast) until its track is enabled. When Source was loaded *from* a timeline
 clip, `.` instead retargets that clip's In/Out (and its linked stems) and
 ripples later clips on its tracks if the duration changed.
 
