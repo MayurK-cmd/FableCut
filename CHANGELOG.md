@@ -8,6 +8,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Trim tools** — a tool picker in the timeline toolbar with Premiere's
+  shortcuts where they are free: **Selection** (<kbd>V</kbd>), **Ripple edit**
+  (<kbd>B</kbd>), **Rolling edit** (<kbd>R</kbd> — Premiere's N is Snap here),
+  **Slip** (<kbd>Y</kbd>) and **Slide** (<kbd>U</kbd>). Ripple and Roll act on
+  clip edges, Slip and Slide on the whole clip. All are clamped to the source
+  media, MIN_DUR and free room, move linked partners together, respect
+  targeting and locks, snap like normal trims, undo in one step, and show the
+  offset beside the pointer while dragging.
+- **Lift** (<kbd>;</kbd>) and **Extract** (<kbd>'</kbd>) — remove the IN→OUT
+  range on the targeted tracks; Extract also closes the gap. Buttons in the
+  timeline toolbar too.
 - **Track targeting** — click a track's name to target or untarget it. Split,
   insert, replace, ripple delete, close gap, next gap, T / ⇧T and jump-to-cut
   touch targeted tracks only, and Source placement lands on the targeted lanes.

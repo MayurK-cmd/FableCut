@@ -435,6 +435,25 @@ glitch (RGB split + jitter) · pop (overshoot scale — stickers/captions).
   `transitionIn: {type:"fade"}`.
 - A cut/split is just two clips: first with `duration: t`, second with
   `start: +t, in: +t×speed, duration: rest`.
+- **Edit tools** (timeline toolbar picker, or V / B / R / Y / U) change what a
+  clip drag does. They are editor gestures — agents get the same results by
+  patching `start` / `in` / `duration` directly, keeping linked partners equal.
+  - **Selection (V)** — move and trim, as always.
+  - **Ripple edit (B)** — drag a clip edge; everything after it on the targeted
+    tracks (and the clip's own lanes) moves with it, so no gap opens or closes.
+    Dragging a head keeps the clip's start and trims its source In.
+  - **Rolling edit (R)** — drag a cut; the clip on one side lengthens by what
+    the other loses, nothing else moves.
+  - **Slip (Y)** — drag a clip to change its source In only (dragging left shows
+    later source); position and length stay. Video / audio clips only.
+  - **Slide (U)** — drag a clip along its track; the clip before it trims its
+    tail and the clip after it its head, so the sequence length stays.
+  All four are clamped to the available source media, MIN_DUR and the free
+  room on the track, take linked partners with them, and refuse on locked
+  clips; a readout by the pointer shows the offset while dragging.
+- **Lift (;) / Extract (')** — remove IN→OUT on the targeted tracks. Lift
+  leaves the gap; Extract closes it. Linked partners are cut too, locked clips
+  stay whole, and IN / OUT clear afterwards.
 - **Jump to cut** — `↑` / `↓` move the playhead to the previous / next clip
   In or Out. Selection first (that clip’s start then end); no selection walks
   targeted-track cuts. Source monitor: 0 / In / Out / duration. Does not change
@@ -558,6 +577,13 @@ gap). Sync lock applies: linked partners on untargeted tracks move with the
 ripple, and locked clips are neither deleted nor moved. An unselected clip that merely *overlaps* the deleted range stays put —
 its overlap ends up bridging the shifted-in clip, so a crossfade across the cut
 survives.
+
+**Tighten a cut without breaking the rest**: Ripple edit (B) on the tail of the
+shot that runs long — the rest of the edit follows. To change where a cut
+falls between two shots without shifting anything else, Rolling edit (R) the
+cut. To keep a shot's timing but use a better take of the same moment, Slip
+(Y) it. To pull a whole segment out of the middle: set IN / OUT around it and
+Extract (').
 
 **Jump to cut**: select a clip, then ↑ / ↓ — playhead snaps to its In, then
 Out (further taps walk neighboring cuts). No selection → previous / next cut
