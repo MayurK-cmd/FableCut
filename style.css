@@ -2691,3 +2691,192 @@ body.file-drag::after {
   z-index: 99;
   pointer-events: none;
 }
+/* ── Round 3: snap targets, markers, typed timecode ── */
+.snap-seg {
+  display: inline-flex;
+}
+
+.snap-seg #btnSnap {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+#btnSnapMenu {
+  padding: 3px 5px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.snap-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #5eead4;
+  box-shadow: 0 0 0 1px #5eead433;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.snap-menu {
+  min-width: 170px;
+}
+
+.snap-menu-head,
+.marker-pop-head {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+}
+
+.ctx-menu .snap-opt {
+  justify-content: flex-start;
+  gap: 8px;
+  align-items: center;
+}
+
+.snap-opt input {
+  accent-color: var(--accent);
+}
+
+.marker-pop {
+  width: 216px;
+}
+
+.marker-pop-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.marker-pop-head .timecode {
+  font-size: 12px;
+}
+
+.marker-name {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  user-select: text;
+}
+
+.marker-name:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.marker-swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  margin: 0 2px 6px;
+}
+
+.marker-swatch {
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--c);
+  cursor: pointer;
+}
+
+.marker-swatch.on {
+  border-color: #fff;
+}
+
+.marker-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.marker-list {
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.marker-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ctx-menu .marker-go {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.marker-go .timecode {
+  font-size: 12px;
+}
+
+.marker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marker-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--c);
+  transform: rotate(45deg);
+}
+
+.marker-edit {
+  flex: none;
+}
+
+.marker-clear {
+  margin-top: 4px !important;
+  border-top: 1px solid var(--border) !important;
+  border-radius: 0 0 4px 4px !important;
+}
+
+.marker-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+#tcCurrent,
+#tcIn,
+#tcOut {
+  cursor: text;
+  border-radius: 3px;
+}
+
+#tcCurrent:hover,
+#tcIn:hover,
+#tcOut:hover {
+  background: #ffffff12;
+}
+
+.timecode.editing {
+  visibility: hidden;
+}
+
+.tc-input {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  padding: 0 2px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg);
+  color: #fff;
+  line-height: 1;
+  outline: none;
+  user-select: text;
+}

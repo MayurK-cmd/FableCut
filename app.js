@@ -370,6 +370,7 @@ const DEFAULT_SETTINGS = {
   // WebCodecs has no CRF — bitrate (Mbps) + constant|variable mode
   webCodecsBitrateMbps: null, // null = auto from canvas size
   webCodecsBitrateMode: "variable", // "variable" | "constant"
+  snapTargets: { clips: true, playhead: true, markers: true, inout: true, keyframes: false, frames: true },
 };
 let settings = { ...DEFAULT_SETTINGS };
 function loadSettings() {
@@ -388,6 +389,11 @@ function loadSettings() {
     }
     if (next.webCodecsBitrateMode !== "constant" && next.webCodecsBitrateMode !== "variable") {
       next.webCodecsBitrateMode = "variable";
+    }
+    const st = next.snapTargets;
+    next.snapTargets = { ...DEFAULT_SETTINGS.snapTargets };
+    if (st && typeof st === "object") {
+      for (const k of Object.keys(next.snapTargets)) if (typeof st[k] === "boolean") next.snapTargets[k] = st[k];
     }
     settings = next;
   } catch {
@@ -631,6 +637,7 @@ const els = {
   trackHeaders: $("trackHeaders"), timelineScroll: $("timelineScroll"),
   tracksContent: $("tracksContent"), tracks: $("tracks"), playhead: $("playhead"),
   ruler: $("ruler"), zoomSlider: $("zoomSlider"), btnSnap: $("btnSnap"),
+  btnSnapMenu: $("btnSnapMenu"), btnMarkers: $("btnMarkers"), snapLine: $("snapLine"),
   btnAudioHold: $("btnAudioHold"),
   exportOverlay: $("exportOverlay"), exportProgress: $("exportProgress"),
   exportTitle: $("exportTitle"), exportNote: $("exportNote"),
@@ -682,6 +689,60 @@ function fmt(t) {
     f = Math.floor((t % 1) * projectFps());
   const p = (n) => String(n).padStart(2, "0");
   return `${p(m)}:${p(s)}:${p(f)}`;
+}
+/* Typed timecode → seconds, or null if it doesn't parse. Colon (or ;)
+   fields read right-to-left as FF, SS, MM, HH; bare digits pack the same way
+   (Premiere style: "1500" = 15s 00f, "5" = 5 frames). Frames may overflow
+   ("0:45" at 30 fps = 1.5 s). A decimal point or trailing "s" means seconds
+   ("12.5", "90s").
+   A leading + / − offsets from `base` instead of setting an absolute time. */
+function parseTimecode(str, fps, base = 0) {
+  let s = String(str ?? "").trim().replace(/\s+/g, "");
+  if (!s) return null;
+  let sign = 0;
+  if (s[0] === "+" || s[0] === "-") { sign = s[0] === "+" ? 1 : -1; s = s.slice(1); }
+  if (!s) return null;
+  let sec;
+  const secs = /^(\d*\.\d+)s?$|^(\d+)s$/i.exec(s);
+  if (secs) sec = +(secs[1] ?? secs[2]);
+  else {
+    let fields;
+    if (/^\d+$/.test(s)) {
+      fields = [];
+      for (let i = s.length; i > 0; i -= 2) fields.unshift(s.slice(Math.max(0, i - 2), i));
+      if (fields.length > 4) fields = [fields.slice(0, fields.length - 3).join(""), ...fields.slice(-3)];
+    } else if (/^\d*([:;]\d*){1,3}$/.test(s)) fields = s.split(/[:;]/);
+    else return null;
+    const n = fields.map((f) => +f || 0).reverse(); // [ff, ss, mm, hh]
+    sec = (n[3] || 0) * 3600 + (n[2] || 0) * 60 + (n[1] || 0) + (n[0] || 0) / (fps > 0 ? fps : 30);
+  }
+  if (!Number.isFinite(sec)) return null;
+  return Math.max(0, sign ? base + sign * sec : sec);
+}
+/* ── Markers: named, coloured cues on the ruler ({t, label?, color?}) ── */
+const MARKER_COLORS = {
+  gold: "#ffd166", red: "#ff5c6c", orange: "#ff9f43", green: "#4ade80",
+  cyan: "#22d3ee", blue: "#60a5fa", purple: "#a78bfa", pink: "#f472b6",
+};
+function normalizeMarker(m) {
+  if (!m || !Number.isFinite(+m.t) || +m.t < 0) return null;
+  const out = { t: +(+m.t).toFixed(3) };
+  const label = typeof m.label === "string" ? m.label.trim().slice(0, 80) : "";
+  if (label) out.label = label;
+  if (m.color && m.color !== "gold" && Object.hasOwn(MARKER_COLORS, m.color)) out.color = m.color;
+  return out;
+}
+function normalizeMarkers(list) {
+  return (Array.isArray(list) ? list : []).map(normalizeMarker).filter(Boolean).sort((a, b) => a.t - b.t);
+}
+function markerColor(m) { return MARKER_COLORS[m?.color] || MARKER_COLORS.gold; }
+/* First marker strictly after t (dir 1) or before it (dir −1), or null. */
+function adjacentMarker(markers, t, dir, eps = 1e-3) {
+  let best = null;
+  for (const m of markers || []) {
+    if (dir > 0 ? m.t > t + eps && (!best || m.t < best.t) : m.t < t - eps && (!best || m.t > best.t)) best = m;
+  }
+  return best;
 }
 const getMedia = (id) => project.media.find((m) => m.id === id);
 const getClip = (id) => project.clips.find((c) => c.id === id);
@@ -1225,7 +1286,7 @@ function applyProject(data) {
     folders: normalizeFolders(data.folders),
     media: (data.media || []).map(normalizeMediaEntry),
     clips: data.clips || [],
-    markers: (data.markers || []).filter((m) => m && isFinite(m.t)).sort((a, b) => a.t - b.t),
+    markers: normalizeMarkers(data.markers),
     inPoint: wa.inPoint,
     outPoint: wa.outPoint,
     exportFrame: normalizeExportFrame(data.exportFrame, data.width || 1280, data.height || 720),
@@ -1330,7 +1391,7 @@ function projectJSON() {
       if (unlinked === true) clipOut.unlinked = true;
       return clipOut;
     }),
-    markers: (markers || []).map(({ t, label }) => (label ? { t, label } : { t })),
+    markers: normalizeMarkers(markers),
     inPoint: inPoint == null ? null : inPoint,
     outPoint: outPoint == null ? null : outPoint,
     disabledTracks: normalizeDisabledTracks(disabledTracks),
@@ -1970,22 +2031,32 @@ function setBinTab(tab) {
 }
 
 /* ═══════════════════════════ EDIT OPERATIONS ═══════════════════════════ */
+/* Undo entries are {clips, markers} snapshots. Drag gestures still push a bare
+   clips array (taken at pointerdown) — restoring one leaves markers alone. */
+function undoSnapshot() {
+  return JSON.stringify({ clips: project.clips, markers: project.markers || [] });
+}
 function pushUndo() {
-  runtime.undo.push(JSON.stringify(project.clips));
+  runtime.undo.push(undoSnapshot());
   if (runtime.undo.length > 100) runtime.undo.shift();
   runtime.redo.length = 0;
 }
+function restoreSnapshot(json) {
+  const snap = JSON.parse(json);
+  if (Array.isArray(snap)) project.clips = snap;
+  else { project.clips = snap.clips; project.markers = snap.markers; }
+}
 function undo() {
   if (!runtime.undo.length) return;
-  runtime.redo.push(JSON.stringify(project.clips));
-  project.clips = JSON.parse(runtime.undo.pop());
+  runtime.redo.push(undoSnapshot());
+  restoreSnapshot(runtime.undo.pop());
   pruneSelection();
   scheduleSave(); renderInspector();
 }
 function redo() {
   if (!runtime.redo.length) return;
-  runtime.undo.push(JSON.stringify(project.clips));
-  project.clips = JSON.parse(runtime.redo.pop());
+  runtime.undo.push(undoSnapshot());
+  restoreSnapshot(runtime.redo.pop());
   pruneSelection();
   scheduleSave(); renderInspector();
 }
@@ -3846,7 +3917,8 @@ function drawRuler() {
     rulerWorker.postMessage({
       type: "draw", w, h, dpr,
       sl: els.timelineScroll.scrollLeft, pps: state.pps,
-      markers: project.markers, inPoint: project.inPoint, outPoint: project.outPoint,
+      markers: project.markers, markerColors: MARKER_COLORS,
+      inPoint: project.inPoint, outPoint: project.outPoint,
       time: state.time, fps: projectFps(),
     });
     return;
@@ -3887,14 +3959,33 @@ function drawRulerMainThread(w, h, dpr) {
     if (x0 > 0) g.fillRect(0, 0, Math.min(w, x0), h);
     if (x1 < w) g.fillRect(Math.max(0, x1), 0, w - Math.max(0, x1), h);
   }
-  // beat/cue markers
-  for (const mk of project.markers || []) {
-    const x = mk.t * pps - sl;
-    if (x < -6 || x > w + 6) continue;
-    g.fillStyle = "#ffd166";
+  // beat/cue markers — coloured diamonds, name to the right (clipped at the next marker)
+  const mks = project.markers || [];
+  for (let i = 0; i < mks.length; i++) {
+    const mk = mks[i], x = mk.t * pps - sl;
+    if (x < -6 || x > w + 6) {
+      if (!mk.label || x > w) continue;
+    }
+    const col = markerColor(mk);
+    g.fillStyle = col;
     g.beginPath();
     g.moveTo(x, h - 9); g.lineTo(x + 4, h - 5); g.lineTo(x, h - 1); g.lineTo(x - 4, h - 5);
     g.closePath(); g.fill();
+    if (mk.label) {
+      const next = mks[i + 1] ? mks[i + 1].t * pps - sl : w;
+      const room = Math.min(next - x - 10, 160);
+      if (room > 14) {
+        g.save();
+        g.beginPath(); g.rect(x + 6, h - 12, room, 12); g.clip();
+        g.font = "9px system-ui, sans-serif";
+        const tw = g.measureText(mk.label).width;
+        g.fillStyle = "#101014cc";
+        g.fillRect(x + 6, h - 11, Math.min(tw + 6, room), 10);
+        g.fillStyle = col;
+        g.fillText(mk.label, x + 9, h - 3);
+        g.restore();
+      }
+    }
   }
   // IN / OUT — bottom-aligned; `difference` keeps time glyphs readable where they overlap
   // (true `xor` would punch transparent holes instead of showing the digits)
@@ -3930,24 +4021,81 @@ function drawRulerMainThread(w, h, dpr) {
 }
 
 /* ── Snapping ── */
-function snapTime(t, ignore) { // ignore: clip id, Set of ids, or null
-  if (!state.snap) return t;
+/* Which targets pull a dragged time in (the ▾ menu next to Snap). `frames`
+   is not a target: when nothing is in reach it rounds to the frame grid. */
+const SNAP_TARGET_LABELS = {
+  clips: "Clip edges", playhead: "Playhead", markers: "Markers",
+  inout: "IN / OUT", keyframes: "Keyframes", frames: "Frame grid",
+};
+function snapTargets() { return getSetting("snapTargets") || DEFAULT_SETTINGS.snapTargets; }
+/* → {t, hit}: `hit` is true when a target (not the frame grid) caught t.
+   ignore: clip id, Set of ids, or null. opts.skipMarker: a marker being dragged. */
+function snapInfo(t, ignore, opts = {}) {
+  if (!state.snap) return { t, hit: false };
+  const on = snapTargets();
   const ign = ignore instanceof Set ? ignore : new Set(ignore ? [ignore] : []);
   const tol = SNAP_PX / state.pps;
-  const cands = [0, state.time];
-  for (const mk of project.markers || []) cands.push(mk.t);
-  if (project.inPoint != null) cands.push(project.inPoint);
-  if (project.outPoint != null) cands.push(project.outPoint);
-  for (const c of project.clips) {
-    if (ign.has(c.id)) continue;
-    cands.push(c.start, clipEnd(c));
+  const cands = [0];
+  if (on.playhead) cands.push(state.time);
+  if (on.markers) for (const mk of project.markers || []) if (mk !== opts.skipMarker) cands.push(mk.t);
+  if (on.inout) {
+    if (project.inPoint != null) cands.push(project.inPoint);
+    if (project.outPoint != null) cands.push(project.outPoint);
   }
-  let best = t, bd = tol;
+  if (on.clips || on.keyframes) {
+    for (const c of project.clips) {
+      if (ign.has(c.id)) continue;
+      if (on.clips) cands.push(c.start, clipEnd(c));
+      if (on.keyframes) for (const lt of clipKeyframeLocalTimes(c)) cands.push(c.start + lt);
+    }
+  }
+  let best = t, bd = tol, hit = false;
   for (const s of cands) {
     const d = Math.abs(s - t);
-    if (d < bd) { bd = d; best = s; }
+    if (d < bd) { bd = d; best = s; hit = true; }
   }
-  return best;
+  if (!hit && on.frames) {
+    const fps = projectFps();
+    best = Math.round(t * fps) / fps;
+  }
+  noteSnap(hit ? best : null);
+  return { t: best, hit };
+}
+function snapTime(t, ignore, opts) { return snapInfo(t, ignore, opts).t; }
+/* Vertical guide at the time a drag snapped to. Coalesced per frame so a
+   miss on one edge doesn't hide a hit on the other; pointerup clears it. */
+let snapLineT = null, snapLineRaf = 0;
+function noteSnap(hitT) {
+  if (hitT != null) snapLineT = hitT;
+  if (snapLineRaf) return;
+  snapLineRaf = requestAnimationFrame(() => {
+    snapLineRaf = 0;
+    const el = els.snapLine;
+    if (el) {
+      const show = snapLineT != null && state.gesture;
+      el.classList.toggle("hidden", !show);
+      if (show) el.style.left = Math.round(snapLineT * state.pps) + "px";
+    }
+    snapLineT = null;
+  });
+}
+window.addEventListener("pointerup", () => els.snapLine?.classList.add("hidden"), true);
+function toggleSnapTarget(key) {
+  setSetting("snapTargets", { ...snapTargets(), [key]: !snapTargets()[key] });
+}
+function openSnapMenu(anchor) {
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu snap-menu";
+  const on = snapTargets();
+  menu.innerHTML = `<div class="snap-menu-head dim">Snap to</div>` +
+    Object.entries(SNAP_TARGET_LABELS).map(([k, label]) =>
+      `<label class="ctx-item snap-opt"><input type="checkbox" data-snap="${k}"${on[k] ? " checked" : ""}> <span>${label}</span></label>`).join("");
+  menu.addEventListener("change", (e) => {
+    const k = e.target.dataset.snap;
+    if (k) toggleSnapTarget(k);
+  });
+  const r = anchor.getBoundingClientRect();
+  showPopover(menu, r.left, r.bottom + 4);
 }
 
 /* ── Pointer interactions on timeline ── */
@@ -4045,9 +4193,9 @@ function startTrimToolGesture(e, c, mode) {
       const edge = side === "out" ? clipEnd(c) : c.start;
       d = snapTime(edge + d, ignore) - edge;
     } else if (tool === "slide") {
-      const a = snapTime(c.start + d, ignore) - c.start, b = snapTime(clipEnd(c) + d, ignore) - clipEnd(c);
-      const da = Math.abs(a - d), db = Math.abs(b - d);
-      if (db > 0 && (da === 0 || db < da)) d = b; else if (da > 0) d = a;
+      const sa = snapInfo(c.start + d, ignore), sb = snapInfo(clipEnd(c) + d, ignore);
+      const a = sa.t - c.start, b = sb.t - clipEnd(c);
+      if (sb.hit && (!sa.hit || Math.abs(b - d) < Math.abs(a - d))) d = b; else d = a;
     }
     const r = run(d);
     applied = typeof r === "number" ? r : 0;
@@ -4220,13 +4368,12 @@ function startClipGesture(e, c, mode, collapseOnClick) {
       // distance 0, which must NOT beat a real snap on the other edge.
       const rawStart = orig.start + dt;
       const rawEnd = orig.start + orig.duration + dt;
-      const snapStart = snapTime(rawStart, groupIds);
-      const snapEnd = snapTime(rawEnd, groupIds);
-      const dStart = Math.abs(snapStart - rawStart);
-      const dEnd = Math.abs(snapEnd - rawEnd);
-      let ns = rawStart;
-      if (dEnd > 0 && (dStart === 0 || dEnd < dStart)) ns = snapEnd - orig.duration;
-      else if (dStart > 0) ns = snapStart;
+      // (A frame-grid rounding is not a snap: it only applies to the start.)
+      const sStart = snapInfo(rawStart, groupIds);
+      const sEnd = snapInfo(rawEnd, groupIds);
+      let ns = sStart.t;
+      if (sEnd.hit && (!sStart.hit || Math.abs(sEnd.t - rawEnd) < Math.abs(sStart.t - rawStart)))
+        ns = sEnd.t - orig.duration;
       // one time-delta for the whole group, clamped so nothing crosses 0
       let d = ns - orig.start;
       d = Math.max(d, -Math.min(...group.map((x) => groupOrig.get(x.id).start)));
@@ -4358,7 +4505,69 @@ function startScrub(e) {
   window.addEventListener("pointermove", seek);
   window.addEventListener("pointerup", onUp);
 }
-els.ruler.addEventListener("pointerdown", startScrub);
+/* Marker under a ruler pointer event: the diamond row at the bottom, ±6 px. */
+function markerAtRulerEvent(e) {
+  const r = els.ruler.getBoundingClientRect();
+  if (e.clientY - r.top < RULER_H - 13) return null;
+  const x = e.clientX - els.timelineScroll.getBoundingClientRect().left + els.timelineScroll.scrollLeft;
+  let best = null, bd = 6;
+  for (const m of project.markers || []) {
+    const d = Math.abs(m.t * state.pps - x);
+    if (d <= bd) { bd = d; best = m; }
+  }
+  return best;
+}
+/* Ruler: drag a marker diamond to move it (snaps like a clip edge), click one
+   to park the playhead on it; anywhere else scrubs. */
+function onRulerPointerDown(e) {
+  const mk = e.button === 0 ? markerAtRulerEvent(e) : null;
+  if (!mk) { if (e.button === 0) startScrub(e); return; }
+  e.preventDefault();
+  if (isSourceMode()) setMonitorMode("program");
+  state.gesture = true;
+  const snapshot = undoSnapshot(), x0 = e.clientX, t0 = mk.t;
+  let moved = false;
+  const onMove = (ev) => {
+    if (!moved && Math.abs(ev.clientX - x0) <= 3) return;
+    moved = true;
+    const t = clamp(t0 + (ev.clientX - x0) / state.pps, 0, 1e6);
+    mk.t = +snapTime(t, null, { skipMarker: mk }).toFixed(3);
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    state.gesture = false;
+    if (moved && mk.t !== t0) {
+      runtime.undo.push(snapshot);
+      if (runtime.undo.length > 100) runtime.undo.shift();
+      runtime.redo.length = 0;
+      project.markers.sort((a, b) => a.t - b.t);
+      scheduleSave();
+    } else if (!moved) setTime(mk.t);
+    if (runtime.pendingSync) syncFromServer();
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
+els.ruler.addEventListener("pointerdown", onRulerPointerDown);
+els.ruler.addEventListener("dblclick", (e) => {
+  const mk = markerAtRulerEvent(e);
+  if (mk) openMarkerEditor(mk, e.clientX - 20, e.clientY + 10);
+});
+els.ruler.addEventListener("contextmenu", (e) => {
+  const mk = markerAtRulerEvent(e);
+  if (!mk) return;
+  e.preventDefault();
+  openMarkerEditor(mk, e.clientX, e.clientY);
+});
+els.ruler.addEventListener("pointermove", (e) => {
+  if (state.gesture) return;
+  const mk = markerAtRulerEvent(e);
+  els.ruler.style.cursor = mk ? "ew-resize" : "";
+  els.ruler.title = mk
+    ? `${mk.label ? mk.label + " · " : ""}${fmt(mk.t)} — drag to move · double-click to name / colour`
+    : "";
+});
 
 function setTime(t) {
   state.time = clamp(t, 0, Math.max(projDur(), 0));
@@ -4466,16 +4675,127 @@ function toggleMarker() {
   const tol = Math.max(0.05, SNAP_PX / state.pps);
   project.markers = project.markers || [];
   const near = project.markers.findIndex((m) => Math.abs(m.t - t) < tol);
+  pushUndo();
   if (near >= 0 && !state.playing) project.markers.splice(near, 1);
   else { project.markers.push({ t }); project.markers.sort((a, b) => a.t - b.t); }
   scheduleSave();
+}
+/* Shift+M / Alt+Shift+M — playhead to the next / previous marker. */
+function goToMarker(dir) {
+  const m = adjacentMarker(project.markers, state.time, dir);
+  if (!m) { toast(dir > 0 ? "No marker after the playhead" : "No marker before the playhead"); return; }
+  if (isSourceMode()) setMonitorMode("program");
+  setTime(m.t);
+  revealTime(m.t);
+}
+/* Scroll the timeline so time t is on screen (no-op when it already is). */
+function revealTime(t) {
+  const sc = els.timelineScroll, px = t * state.pps;
+  if (px < sc.scrollLeft || px > sc.scrollLeft + sc.clientWidth - 40)
+    sc.scrollLeft = Math.max(0, px - sc.clientWidth / 3);
+}
+/* Open a small popover at client (x, y), reusing the context-menu slot so the
+   outside-click / Escape handlers close it. */
+function showPopover(menu, clientX, clientY) {
+  hideTrackCtxMenu();
+  menu.id = "trackCtxMenu";
+  document.body.appendChild(menu);
+  trackCtxMenu = menu;
+  const pad = 6, w = menu.offsetWidth, h = menu.offsetHeight;
+  let x = clientX, y = clientY;
+  if (x + w + pad > window.innerWidth) x = window.innerWidth - w - pad;
+  if (y + h + pad > window.innerHeight) y = window.innerHeight - h - pad;
+  menu.style.left = Math.max(pad, x) + "px";
+  menu.style.top = Math.max(pad, y) + "px";
+}
+/* Name / colour / delete one marker. Edits apply live; the first change of
+   each kind takes one undo step. */
+function openMarkerEditor(mk, clientX, clientY) {
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu marker-pop";
+  const swatches = Object.entries(MARKER_COLORS).map(([name, hex]) =>
+    `<button type="button" class="marker-swatch" data-color="${name}" title="${name}" aria-label="${name}" style="--c:${hex}"></button>`).join("");
+  menu.innerHTML =
+    `<div class="marker-pop-head"><span class="timecode">${fmt(mk.t)}</span><span class="dim">Marker</span></div>` +
+    `<input type="text" class="marker-name" maxlength="80" placeholder="Name (optional)" spellcheck="false">` +
+    `<div class="marker-swatches">${swatches}</div>` +
+    `<button type="button" class="ctx-item marker-del"><span>Delete marker</span></button>`;
+  const input = menu.querySelector(".marker-name");
+  input.value = mk.label || "";
+  const syncSwatches = () => {
+    for (const b of menu.querySelectorAll(".marker-swatch"))
+      b.classList.toggle("on", b.dataset.color === (mk.color || "gold"));
+  };
+  syncSwatches();
+  let named = false;
+  input.addEventListener("input", () => {
+    if (!named) { pushUndo(); named = true; }
+    const label = input.value.trim().slice(0, 80);
+    if (label) mk.label = label; else delete mk.label;
+    scheduleSave();
+  });
+  input.addEventListener("keydown", (e) => { if (e.key === "Enter") hideTrackCtxMenu(); });
+  menu.querySelector(".marker-swatches").addEventListener("click", (e) => {
+    const b = e.target.closest("[data-color]");
+    if (!b) return;
+    pushUndo();
+    if (b.dataset.color === "gold") delete mk.color; else mk.color = b.dataset.color;
+    syncSwatches();
+    scheduleSave();
+  });
+  menu.querySelector(".marker-del").addEventListener("click", () => {
+    const i = (project.markers || []).indexOf(mk);
+    if (i >= 0) { pushUndo(); project.markers.splice(i, 1); scheduleSave(); }
+    hideTrackCtxMenu();
+  });
+  showPopover(menu, clientX, clientY);
+  input.focus();
+  input.select();
+}
+/* Toolbar Markers list — click a row to jump, ✎ to rename / recolour. */
+function openMarkerList(anchor) {
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu marker-list";
+  const list = project.markers || [];
+  if (!list.length) {
+    menu.innerHTML = `<div class="marker-empty dim">No markers yet — press <kbd>M</kbd> at the playhead.</div>`;
+  } else {
+    menu.innerHTML = list.map((m, i) =>
+      `<div class="marker-row" data-i="${i}">` +
+      `<button type="button" class="ctx-item marker-go" data-i="${i}">` +
+      `<span class="marker-dot" style="--c:${markerColor(m)}"></span>` +
+      `<span class="timecode">${fmt(m.t)}</span>` +
+      `<span class="marker-label${m.label ? "" : " dim"}">${m.label ? escapeHtml(m.label) : "—"}</span></button>` +
+      `<button type="button" class="btn tiny marker-edit" data-i="${i}" title="Rename / colour">✎</button></div>`,
+    ).join("") +
+      `<button type="button" class="ctx-item marker-clear"><span>Clear all markers</span></button>`;
+  }
+  menu.addEventListener("click", (e) => {
+    const go = e.target.closest(".marker-go"), ed = e.target.closest(".marker-edit");
+    if (go) {
+      const m = list[+go.dataset.i];
+      hideTrackCtxMenu();
+      if (isSourceMode()) setMonitorMode("program");
+      setTime(m.t); revealTime(m.t);
+    } else if (ed) {
+      const r = ed.getBoundingClientRect();
+      openMarkerEditor(list[+ed.dataset.i], r.left, r.bottom + 4);
+    } else if (e.target.closest(".marker-clear")) {
+      pushUndo();
+      project.markers = [];
+      scheduleSave();
+      hideTrackCtxMenu();
+    }
+  });
+  const r = anchor.getBoundingClientRect();
+  showPopover(menu, r.left, r.bottom + 4);
 }
 /* Work-area IN/OUT markers (I / O). Shift+I / Shift+O clear them. */
 function workAreaTime() {
   return Math.max(TIMELINE_START_TIME, +state.time.toFixed(3));
 }
-function setInPoint() {
-  const t = workAreaTime();
+function setInPoint(at) {
+  const t = at == null ? workAreaTime() : Math.max(TIMELINE_START_TIME, +at.toFixed(3));
   const prevOut = project.outPoint;
   const { inPoint, outPoint } = normalizeWorkArea(t, prevOut);
   if (prevOut != null && inPoint == null && outPoint == null) {
@@ -4487,8 +4807,8 @@ function setInPoint() {
   syncTrimIOButton();
   scheduleSave();
 }
-function setOutPoint() {
-  const t = workAreaTime();
+function setOutPoint(at) {
+  const t = at == null ? workAreaTime() : Math.max(TIMELINE_START_TIME, +at.toFixed(3));
   const prevIn = project.inPoint;
   const { inPoint, outPoint } = normalizeWorkArea(prevIn, t);
   if (prevIn != null && inPoint == null && outPoint == null) {
@@ -5624,7 +5944,7 @@ async function playSource() {
   const dur = sourceDur();
   const end = state.source.out != null ? Math.min(state.source.out, dur) : dur;
   const start = state.source.in != null ? state.source.in : 0;
-  if (state.source.time >= end - 0.01) setSourceTime(start);
+  if (playRate() >= 0 && state.source.time >= end - 0.01) setSourceTime(start);
   const m = sourceMedia();
   const el = ensureSourceEl(m);
   const audio = ensureAudio();
@@ -5640,6 +5960,8 @@ async function playSource() {
   syncPlayButton();
 }
 function toggleTransportPlay() {
+  // Space always resumes forward — drop a reverse / crawl rate left by J or K+L
+  if (!transportPlaying() && state.previewRate < 1) setPreviewRate(1);
   if (isSourceMode()) {
     state.source.playing ? pauseSource() : playSource();
   } else {
@@ -5720,9 +6042,9 @@ function loadSourceFromClip(c, opts = {}) {
   });
   persistSourceMarks();
 }
-function setSourceInMark() {
+function setSourceInMark(at) {
   if (!state.source.mediaId) return;
-  const t = +state.source.time.toFixed(3);
+  const t = +clamp(at ?? state.source.time, 0, Math.max(sourceDur(), 0)).toFixed(3);
   const out = state.source.out;
   if (out != null && t >= out) {
     toast("IN must be before OUT");
@@ -5732,9 +6054,9 @@ function setSourceInMark() {
   persistSourceMarks();
   updateSourceScrub();
 }
-function setSourceOutMark() {
+function setSourceOutMark(at) {
   if (!state.source.mediaId) return;
-  const t = +state.source.time.toFixed(3);
+  const t = +clamp(at ?? state.source.time, 0, Math.max(sourceDur(), 0)).toFixed(3);
   const inn = state.source.in;
   if (inn != null && t <= inn) {
     toast("OUT must be after IN");
@@ -5772,6 +6094,69 @@ function clearMarkOut() {
   if (isSourceMode()) clearSourceOutMark();
   else clearOutPoint();
 }
+/* ── Typed timecode: click the playhead / IN / OUT readout (or type a digit)
+   and enter a time — see parseTimecode for the accepted forms. ── */
+function tcEntryTarget(kind) {
+  const src = isSourceMode();
+  if (kind === "time") return src ? state.source.time : state.time;
+  if (kind === "in") return src ? state.source.in : project.inPoint;
+  return src ? state.source.out : project.outPoint;
+}
+function applyTcEntry(kind, t) {
+  const src = isSourceMode();
+  if (kind === "time") {
+    if (src) setSourceTime(t);
+    else { setTime(t); revealTime(state.time); }
+  } else if (kind === "in") src ? setSourceInMark(t) : setInPoint(t);
+  else src ? setSourceOutMark(t) : setOutPoint(t);
+}
+function beginTcEntry(el, kind, initial) {
+  if (!el || document.querySelector(".tc-input")) return;
+  if (kind !== "time" && isSourceMode() && !state.source.mediaId) return;
+  const cur = tcEntryTarget(kind);
+  const base = cur ?? tcEntryTarget("time");
+  const r = el.getBoundingClientRect();
+  const input = document.createElement("input");
+  input.type = "text";
+  input.className = "tc-input";
+  input.spellcheck = false;
+  input.autocomplete = "off";
+  input.title = "Enter to go · Esc to cancel (see ? for formats)";
+  input.value = initial ?? fmt(base);
+  // Sit exactly over the readout it replaces: same font, a hair of padding
+  // for relative "+30" entries, no taller than the line (IN/OUT rows stack).
+  const cs = getComputedStyle(el);
+  Object.assign(input.style, {
+    font: cs.font, left: r.left - 3 + "px", top: r.top - 2 + "px",
+    width: r.width + 14 + "px", height: r.height + 4 + "px",
+  });
+  document.body.appendChild(input);
+  el.classList.add("editing");
+  let done = false;
+  const close = (commit) => {
+    if (done) return;
+    done = true;
+    if (commit) {
+      const t = parseTimecode(input.value, projectFps(), base);
+      if (t == null) toast("Couldn't read that time — try 01:15:00, 1500, +30 or 12.5s");
+      else if (input.value.trim() !== fmt(base)) applyTcEntry(kind, t);
+    }
+    input.remove();
+    el.classList.remove("editing");
+  };
+  input.addEventListener("keydown", (e) => {
+    e.stopPropagation();
+    if (e.key === "Enter" || e.key === "Tab") { e.preventDefault(); close(true); }
+    else if (e.key === "Escape") { e.preventDefault(); close(false); }
+  });
+  input.addEventListener("blur", () => close(true));
+  input.focus();
+  if (initial == null) input.select();
+  else input.setSelectionRange(input.value.length, input.value.length);
+}
+els.tcCurrent.addEventListener("click", () => beginTcEntry(els.tcCurrent, "time"));
+els.tcIn?.addEventListener("click", () => beginTcEntry(els.tcIn, "in"));
+els.tcOut?.addEventListener("click", () => beginTcEntry(els.tcOut, "out"));
 function gotoTransportHome() {
   if (isSourceMode()) {
     setSourceTime(state.source.in != null ? state.source.in : 0);
@@ -5796,6 +6181,13 @@ function syncSourceMedia() {
   const mt = state.source.time;
   const rate = playRate();
   if (state.source.playing) {
+    if (rate < 0) { // media can't play backwards — park paused and seek frame by frame
+      if (!el.paused) el.pause();
+      if (!el.seeking && Math.abs(el.currentTime - mt) > 1 / projectFps()) {
+        try { el.currentTime = mt; } catch { }
+      }
+      return;
+    }
     if (el.playbackRate !== rate) { try { el.playbackRate = rate; } catch { } }
     if (el.paused) el.play().catch(() => {});
     // Only hard-seek on large drift (start/scrub resume). Tiny RAF vs decode
@@ -6619,7 +7011,9 @@ function play() {
   if (isSourceMode()) setMonitorMode("program");
   ensureAudio();
   runtime.audio.ctx.resume();
-  if (playLimited()) {
+  if (playRate() < 0) {
+    // reverse from where the playhead is — no wrap
+  } else if (playLimited()) {
     const { start, end } = playRange();
     // Parked at OUT after a limited play → restart at IN. Playhead before IN or
     // past OUT is a manual override: leave it and play from there.
@@ -6790,18 +7184,30 @@ function setAudioHold(on) {
 const PREVIEW_RATES = [1, 1.5, 2, 4];
 // Effective preview rate: forced to 1 during any export so renders/captures stay real-time.
 function playRate() { return state.exporting ? 1 : state.previewRate; }
+// Negative = reverse (J). Reverse playback seeks frame by frame and is silent.
 function setPreviewRate(r) {
   state.previewRate = r;
-  els.btnSpeed.textContent = r + "×";
+  els.btnSpeed.textContent = (r < 0 ? "◀" + -r : r) + "×";
   els.btnSpeed.classList.toggle("on", r !== 1);
 }
 function cyclePreviewRate(dir) { // wrap around — for the toolbar button
   const i = Math.max(0, PREVIEW_RATES.indexOf(state.previewRate));
   setPreviewRate(PREVIEW_RATES[(i + dir + PREVIEW_RATES.length) % PREVIEW_RATES.length]);
 }
-function stepPreviewRate(dir) { // clamp at the ends — for the J/L shortcuts
-  const i = Math.max(0, PREVIEW_RATES.indexOf(state.previewRate));
-  setPreviewRate(PREVIEW_RATES[clamp(i + dir, 0, PREVIEW_RATES.length - 1)]);
+/* J / L shuttle step: another tap in the current direction speeds up
+   (1 → 1.5 → 2 → 4×); the opposite key turns around at 1×. */
+function shuttleRate(cur, dir, playing) {
+  if (!playing || Math.sign(cur) !== dir || Math.abs(cur) < 1) return dir;
+  const i = PREVIEW_RATES.indexOf(Math.abs(cur));
+  return dir * PREVIEW_RATES[clamp(i < 0 ? 0 : i + 1, 0, PREVIEW_RATES.length - 1)];
+}
+const INCH_RATE = 0.25; // K held + J/L held: slow crawl
+function transportPlaying() { return isSourceMode() ? state.source.playing : state.playing; }
+function transportStop() { isSourceMode() ? pauseSource() : pause(); }
+function transportStart() { isSourceMode() ? playSource() : play(); }
+function shuttle(dir) {
+  setPreviewRate(shuttleRate(state.previewRate, dir, transportPlaying()));
+  if (!transportPlaying()) transportStart();
 }
 
 function activeAt(c, t) { return t >= c.start && t < clipEnd(c); }
@@ -6815,6 +7221,9 @@ const VIDEO_PREFETCH_SEC = 0.85;
 function syncMedia() {
   const t = state.time;
   const rate = playRate();
+  // Reverse (J): media can't play backwards, so every clip is parked paused
+  // and the one under the playhead is seeked frame by frame, like a scrub.
+  const reversing = state.playing && rate < 0;
   // Timeline lookahead grows with preview rate so wall-clock budget stays ≈VIDEO_PREFETCH_SEC.
   const prefetchTl = VIDEO_PREFETCH_SEC * Math.max(rate, 1);
   for (const c of project.clips) {
@@ -6822,7 +7231,7 @@ function syncMedia() {
     const el = getClipEl(c); if (!el) continue;
     const enabled = clipRenders(c);
     const mt = mediaTimeAt(c, t);
-    if (state.playing && enabled && activeAt(c, t)) {
+    if (state.playing && !reversing && enabled && activeAt(c, t)) {
       // Only the active-under-playhead branch needs the full evaluated props
       // (speed/volume incl. keyframes+transitions) — skip that work for every
       // other clip on the timeline, which is the common case each frame.
@@ -6845,10 +7254,10 @@ function syncMedia() {
       if (g) g.gain.value = 0;
       // Paused preview: keep decode head on the frame under the playhead.
       // Needed when clips move/trim without setTime (drag does not scrub time).
-      if (!state.playing && enabled && c.kind === "video" && activeAt(c, t) &&
-          Math.abs(el.currentTime - mt) > 0.04) {
+      if ((!state.playing || reversing) && enabled && c.kind === "video" && activeAt(c, t) &&
+          Math.abs(el.currentTime - mt) > 0.04 && !(reversing && el.seeking)) {
         try { el.currentTime = mt; } catch {}
-      } else if (state.playing && enabled && c.kind === "video") {
+      } else if (state.playing && !reversing && enabled && c.kind === "video") {
         // Approach a cut: park decode head on this clip's In so the first
         // drawn frame after activeAt flips is already the correct picture.
         const until = c.start - t;
@@ -8210,20 +8619,42 @@ function loop(ts) {
   if (state.source.playing) {
     // Same RAF clock as the timeline playhead — video.currentTime only steps at
     // decode cadence and makes the scrub head stutter.
-    state.source.time += dt * playRate();
-    const end = sourceStopAt();
-    if (state.source.time >= end) {
-      state.source.time = end;
-      pauseSource();
+    const rate = playRate();
+    if (rate < 0) { // reverse: stop at Source In (if the head is past it) or 0
+      const inn = state.source.in;
+      const floor = inn != null && state.source.time >= inn - 1e-4 ? inn : 0;
+      state.source.time += dt * rate;
+      if (state.source.time <= floor) {
+        state.source.time = floor;
+        pauseSource();
+      }
+    } else {
+      state.source.time += dt * rate;
+      const end = sourceStopAt();
+      if (state.source.time >= end) {
+        state.source.time = end;
+        pauseSource();
+      }
     }
   } else if (state.playing) {
-    state.time += dt * playRate();
-    let end = playStopAt(dur);
-    if (state.exporting && !state.rendering && exportWindow) end = exportWindow.end;
-    if (state.time >= end) {
-      state.time = end;
-      if (state.exporting) finishExport(true);
-      else pause();
+    const rate = playRate();
+    if (rate < 0) { // reverse: stop at IN under Limit (if the playhead is past it) or 0
+      const floor = playLimited() && project.inPoint != null && state.time >= project.inPoint - 1e-4
+        ? project.inPoint : 0;
+      state.time += dt * rate;
+      if (state.time <= floor) {
+        state.time = floor;
+        pause();
+      }
+    } else {
+      state.time += dt * rate;
+      let end = playStopAt(dur);
+      if (state.exporting && !state.rendering && exportWindow) end = exportWindow.end;
+      if (state.time >= end) {
+        state.time = end;
+        if (state.exporting) finishExport(true);
+        else pause();
+      }
     }
     // keep playhead visible
     const px = state.time * state.pps, sc = els.timelineScroll;
@@ -9667,6 +10098,8 @@ els.btnSnap.addEventListener("click", () => {
   state.snap = !state.snap;
   els.btnSnap.classList.toggle("on", state.snap);
 });
+els.btnSnapMenu.addEventListener("click", () => openSnapMenu(els.btnSnap));
+els.btnMarkers.addEventListener("click", () => openMarkerList(els.btnMarkers));
 if (els.btnAudioHold) {
   els.btnAudioHold.addEventListener("click", () => setAudioHold(!state.audioHold));
 }
@@ -10144,25 +10577,28 @@ window.addEventListener("keydown", (e) => {
   }
   if (isTypingTarget(document.activeElement)) return;
   if (k === " ") { e.preventDefault(); toggleTransportPlay(); }
-  // JKL shuttle — bare keys only, so Cmd/Ctrl+J/K/L stay with the browser
+  // JKL shuttle — bare keys only, so Cmd/Ctrl+J/K/L stay with the browser.
+  // K stops; hold K and tap J / L to step a frame, hold both to crawl.
   else if ((k === "k" || k === "K") && !e.ctrlKey && !e.metaKey && !e.altKey) {
-    e.preventDefault(); setPreviewRate(1); toggleTransportPlay(); // stop/start + reset to 1×
-  }
-  else if ((k === "l" || k === "L") && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault();
-    if (isSourceMode()) {
-      if (!state.source.playing) playSource(); else stepPreviewRate(1);
-    } else {
-      if (!state.playing) play(); else stepPreviewRate(1);  // tap again = faster
-    }
+    if (e.repeat) return;
+    runtime.kHeld = true;
+    transportStop();
+    setPreviewRate(1);
   }
-  else if ((k === "j" || k === "J") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+  else if ((k === "l" || k === "L" || k === "j" || k === "J") && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault();
-    if (isSourceMode()) {
-      if (!state.source.playing) playSource(); else stepPreviewRate(-1);
-    } else {
-      if (!state.playing) play(); else stepPreviewRate(-1); // tap again = slower
+    const dir = k === "l" || k === "L" ? 1 : -1;
+    if (runtime.kHeld) {
+      if (!e.repeat) { stepTransport(dir); return; }
+      if (!runtime.inching) { // key auto-repeat = held: crawl until release
+        runtime.inching = true;
+        setPreviewRate(dir * INCH_RATE);
+        transportStart();
+      }
+      return;
     }
+    if (!e.repeat) shuttle(dir);
   }
   else if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey &&
     Object.entries(EDIT_TOOLS).some(([, t]) => t.key === k.toUpperCase())) {
@@ -10231,7 +10667,15 @@ window.addEventListener("keydown", (e) => {
   else if (k === "End" && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); gotoTransportEnd(); }
   else if (k === "[") trimToPlayhead("in");
   else if (k === "]") trimToPlayhead("out");
-  else if (k === "m" || k === "M") toggleMarker();
+  else if (e.code === "KeyM" && e.shiftKey && !e.ctrlKey && !e.metaKey) {
+    e.preventDefault();
+    goToMarker(e.altKey ? -1 : 1); // ⇧M next · Alt+⇧M previous
+  }
+  else if ((k === "m" || k === "M") && !e.ctrlKey && !e.metaKey && !e.altKey) toggleMarker();
+  else if (/^[0-9]$/.test(k) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault(); // type a timecode straight into the playhead readout
+    beginTcEntry(els.tcCurrent, "time", k);
+  }
   else if ((k === "i" || k === "I") && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault();
     e.shiftKey ? clearMarkIn() : markIn();
@@ -10285,6 +10729,17 @@ function availableTimelineMax() {
   const gaps = 18; // three 6px flex gaps between four children
   return Math.floor(app.height - topbarH - UPPER_MIN - split - gaps);
 }
+window.addEventListener("keyup", (e) => {
+  const k = e.key.toLowerCase();
+  if (k !== "k" && k !== "j" && k !== "l") return;
+  if (k === "k") runtime.kHeld = false;
+  if (runtime.inching) {
+    runtime.inching = false;
+    transportStop();
+    setPreviewRate(1);
+  }
+});
+window.addEventListener("blur", () => { runtime.kHeld = false; });
 function setTimelineHeight(px) {
   const h = clamp(Math.round(px), TL_H_MIN, Math.max(TL_H_MIN, availableTimelineMax()));
   $("app").style.setProperty("--timeline-h", h + "px");

@@ -19,7 +19,7 @@ function fmt(t, fps) {
 
 function draw(msg) {
   if (!g) return;
-  const { w, h, dpr, sl, pps, markers, inPoint, outPoint, time, fps } = msg;
+  const { w, h, dpr, sl, pps, markers, markerColors, inPoint, outPoint, time, fps } = msg;
   const bw = Math.round(w * dpr), bh = Math.round(h * dpr);
   if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -48,14 +48,33 @@ function draw(msg) {
     if (x0 > 0) g.fillRect(0, 0, Math.min(w, x0), h);
     if (x1 < w) g.fillRect(Math.max(0, x1), 0, w - Math.max(0, x1), h);
   }
-  // beat/cue markers
-  for (const mk of markers || []) {
-    const x = mk.t * pps - sl;
-    if (x < -6 || x > w + 6) continue;
-    g.fillStyle = "#ffd166";
+  // beat/cue markers — coloured diamonds, name to the right (clipped at the next marker)
+  const mks = markers || [];
+  for (let i = 0; i < mks.length; i++) {
+    const mk = mks[i], x = mk.t * pps - sl;
+    if (x < -6 || x > w + 6) {
+      if (!mk.label || x > w) continue;
+    }
+    const col = (markerColors && markerColors[mk.color]) || "#ffd166";
+    g.fillStyle = col;
     g.beginPath();
     g.moveTo(x, h - 9); g.lineTo(x + 4, h - 5); g.lineTo(x, h - 1); g.lineTo(x - 4, h - 5);
     g.closePath(); g.fill();
+    if (mk.label) {
+      const next = mks[i + 1] ? mks[i + 1].t * pps - sl : w;
+      const room = Math.min(next - x - 10, 160);
+      if (room > 14) {
+        g.save();
+        g.beginPath(); g.rect(x + 6, h - 12, room, 12); g.clip();
+        g.font = "9px system-ui, sans-serif";
+        const tw = g.measureText(mk.label).width;
+        g.fillStyle = "#101014cc";
+        g.fillRect(x + 6, h - 11, Math.min(tw + 6, room), 10);
+        g.fillStyle = col;
+        g.fillText(mk.label, x + 9, h - 3);
+        g.restore();
+      }
+    }
   }
   // IN / OUT — bottom-aligned; `difference` keeps time glyphs readable where they overlap
   const mkH = (h - 4) * 0.75, bot = h - 1, top = bot - mkH, mid = (top + bot) / 2;
