@@ -183,8 +183,10 @@ Examples in `library/svg/`: `sparkles.svg` (loop), `lower-third.svg`,
   "background": "#000000",                    // canvas color behind all clips (optional)
   "revision": 7,                              // bump on every write!
   "panSchema": 1,                             // 1 = pan-aware; omit only on pre-pan projects (UI migrates once)
-  "markers": [ { "t": 2.5 }, { "t": 5.0, "label": "drop" } ],
-  // ^ beat/cue markers: gold diamonds on the ruler, snap targets for clip edges.
+  "markers": [ { "t": 2.5 }, { "t": 5.0, "label": "drop", "color": "red" } ],
+  // ^ beat/cue markers: diamonds on the ruler (label shown beside them), snap
+  //   targets for clip edges. color: gold (default) · red · orange · green ·
+  //   cyan · blue · purple · pink. Kept sorted by t; the UI rounds t to 1 ms.
   "inPoint": 10.023, // IN work-area marker (Limit playback + optional export range)
   "outPoint": 21.500, // OUT work-area marker; omit = timeline end
   "folders": [
@@ -689,6 +691,11 @@ frame-accurately.
 
 **Beat-synced cut**: write beat times into `markers`, then align clip `start`s
 to them (the UI also snaps drags to markers).
+
+**Label the structure**: write named, coloured markers for sections the user
+can jump between (⇧M / Alt+⇧M, or the Markers list):
+`setProject {markers:[{t:0,label:"intro",color:"blue"},{t:8.5,label:"drop",color:"red"},{t:24,label:"outro",color:"purple"}]}`.
+`setProject` replaces the whole list — include the existing markers you want to keep.
 
 **Music fade-out**: audio clip `keyframes: { volume:[{t:D-3,v:0.8},{t:D,v:0}] }`
 or simply `transitionOut: {type:"fade", duration:3}`.
