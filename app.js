@@ -461,6 +461,7 @@ const state = {
   disabledTracks: new Set(), // mirror of project.disabledTracks for fast lookup
   lockedTracks: new Set(),   // mirror of project.lockedTracks
   untargetedTracks: new Set(), // mirror of project.untargetedTracks
+  tool: "select",            // timeline edit tool: select | ripple | roll | slip | slide
   soloId: null,              // track id when solo is active, else null
   soloRestore: null,         // disabledTracks snapshot taken when solo engaged
   transFocus: null,      // "in" | "out" — inspector transition row highlighted
@@ -3242,6 +3243,193 @@ function trimToWorkArea() {
   scheduleSave();
   renderInspector();
 }
+/* ── Trim tools: ripple, roll, slip, slide · range lift / extract ──
+   Each op edits from the current state by `delta` seconds of timeline time and
+   returns the delta it actually applied — clamped to the source media, MIN_DUR
+   and the free room on the track — or a string saying why it refuses (a lock,
+   a clip with no source time). The drag gesture restores its start-of-drag
+   snapshot before every call, so the ops stay stateless and a drag can swing
+   back and forth freely. Sync lock as everywhere else: linked partners take
+   the identical trim, ripples shift the targeted tracks (plus the edited
+   clip's own), and locked groups never move. */
+const TRIM_EPS = 1e-3;
+const TRIM_LOCKED = "Locked — unlock the clip or its track to edit";
+const isMediaClip = (c) => c.kind === "video" || c.kind === "audio";
+
+/** Longest this clip may run before it runs out of source media. */
+function maxClipDur(c) {
+  if (!isMediaClip(c)) return Infinity;
+  const m = getMedia(c.mediaId);
+  if (!m || !(m.duration > 0)) return Infinity;
+  return Math.max(MIN_DUR, (m.duration - c.in) / clipSpeed(c));
+}
+/** The clip butting against c's head ("in") or tail ("out") on its track. */
+function adjacentClip(c, side) {
+  const t = side === "in" ? c.start : clipEnd(c);
+  return project.clips.find((x) => x !== c && x.track === c.track &&
+    Math.abs((side === "in" ? clipEnd(x) : x.start) - t) < TRIM_EPS) || null;
+}
+/** Empty room on c's track before its head / after its tail. */
+function freeRoom(c, side) {
+  let room = side === "in" ? c.start : Infinity;
+  for (const x of project.clips) {
+    if (x === c || x.track !== c.track) continue;
+    if (side === "in" && clipEnd(x) <= c.start + TRIM_EPS) room = Math.min(room, c.start - clipEnd(x));
+    if (side === "out" && x.start >= clipEnd(c) - TRIM_EPS) room = Math.min(room, x.start - clipEnd(c));
+  }
+  return Math.max(0, room);
+}
+function clampTransitions(c) {
+  for (const k of ["transitionIn", "transitionOut"])
+    if (c[k] && c[k].duration > c.duration) c[k] = { ...c[k], duration: +c.duration.toFixed(3) };
+}
+/** Set the tail of c and its linked partners (same timing, so same math). */
+function trimGroupTail(c, dur) {
+  for (const x of withLinked([c])) {
+    x.duration = +dur.toFixed(4);
+    x.keyframes = shiftKF(x.keyframes, 0, x.duration);
+    clampTransitions(x);
+  }
+}
+/** Cut `d` seconds off the head of c and its partners (d < 0 extends it).
+ *  moveStart: the head edge moves on the timeline (roll / slide); otherwise
+ *  the clip keeps its start and only its source In advances (ripple). */
+function trimGroupHead(c, d, moveStart) {
+  for (const x of withLinked([c])) {
+    if (moveStart) x.start = +(x.start + d).toFixed(4);
+    if (isMediaClip(x)) x.in = +(x.in + d * clipSpeed(x)).toFixed(4);
+    x.duration = +(x.duration - d).toFixed(4);
+    x.keyframes = shiftKF(x.keyframes, d, x.duration);
+    clampTransitions(x);
+  }
+}
+const clampD = (d, lo, hi) => Math.min(hi, Math.max(lo, d));
+
+/** Ripple trim (B): move c's head or tail and shift everything after it, so
+ *  no gap opens or closes. Tail: delta > 0 lengthens the clip. Head: delta > 0
+ *  cuts material off the head — the clip keeps its start and the rest of the
+ *  timeline pulls left by the same amount. */
+function rippleTrim(c, side, delta) {
+  const group = withLinked([c]);
+  if (group.some(isClipLocked)) return TRIM_LOCKED;
+  const oldEnd = clipEnd(c);
+  let lo, hi;
+  if (side === "out") { lo = MIN_DUR - c.duration; hi = maxClipDur(c) - c.duration; }
+  else { lo = isMediaClip(c) ? -c.in / clipSpeed(c) : -Infinity; hi = c.duration - MIN_DUR; }
+  const groupIds = new Set(group.map((x) => x.id));
+  const lanes = new Set(group.map((x) => x.track));
+  const movers = withoutLocked(withLinked(project.clips.filter((x) => !groupIds.has(x.id) &&
+    (isEditTarget(x.track) || lanes.has(x.track)) && !isTrackLocked(x.track) &&
+    x.start >= oldEnd - TRIM_EPS)));
+  // Pulling left can't push a lane's first mover into what sits before it.
+  const moverIds = new Set(movers.map((x) => x.id));
+  const first = new Map();
+  for (const x of movers) first.set(x.track, Math.min(first.get(x.track) ?? Infinity, x.start));
+  let leftRoom = Infinity;
+  for (const [tr, f] of first) {
+    let blockEnd = 0;
+    for (const x of project.clips)
+      if (x.track === tr && !moverIds.has(x.id) && !groupIds.has(x.id) && x.start < f - TRIM_EPS)
+        blockEnd = Math.max(blockEnd, clipEnd(x));
+    leftRoom = Math.min(leftRoom, Math.max(0, f - blockEnd));
+  }
+  if (side === "out") lo = Math.max(lo, -leftRoom); else hi = Math.min(hi, leftRoom);
+  const d = clampD(delta, lo, hi);
+  if (Math.abs(d) < 1e-9) return 0;
+  if (side === "out") trimGroupTail(c, c.duration + d); else trimGroupHead(c, d, false);
+  const shift = side === "out" ? d : -d;
+  for (const x of movers) x.start = +(x.start + shift).toFixed(4);
+  return d;
+}
+/** Roll edit (R): move the cut on c's head or tail. The clip on the other side
+ *  gives or takes the same amount, so nothing downstream moves. With no clip
+ *  butting against that edge, it trims into the free room only. */
+function rollEdit(c, side, delta) {
+  const left = side === "out" ? c : adjacentClip(c, "in");
+  const right = side === "out" ? adjacentClip(c, "out") : c;
+  if ([left, right].some((x) => x && isGroupLocked(x))) return TRIM_LOCKED;
+  let lo = -Infinity, hi = Infinity;
+  if (left) { lo = MIN_DUR - left.duration; hi = maxClipDur(left) - left.duration; }
+  else lo = -freeRoom(right, "in");
+  if (right) {
+    hi = Math.min(hi, right.duration - MIN_DUR);
+    if (isMediaClip(right)) lo = Math.max(lo, -right.in / clipSpeed(right));
+  } else hi = Math.min(hi, freeRoom(left, "out"));
+  const d = clampD(delta, lo, hi);
+  if (Math.abs(d) < 1e-9) return 0;
+  if (left) trimGroupTail(left, left.duration + d);
+  if (right) trimGroupHead(right, d, true);
+  return d;
+}
+/** Slip (Y): show a different part of the source through the same window.
+ *  delta > 0 drags the picture right, i.e. earlier source. Position and
+ *  length stay; clip-local keyframes stay put on the timeline. */
+function slipClip(c, delta) {
+  if (!isMediaClip(c)) return "Slip needs a video or audio clip — stills and titles have no source time";
+  if (isGroupLocked(c)) return TRIM_LOCKED;
+  const sp = clipSpeed(c);
+  const m = getMedia(c.mediaId);
+  const span = mediaTimeAt(c, clipEnd(c)) - c.in;
+  const maxIn = m && m.duration > 0 ? Math.max(0, m.duration - span) : Infinity;
+  const newIn = clampD(c.in - delta * sp, 0, maxIn);
+  const d = (c.in - newIn) / sp;
+  if (Math.abs(d) < 1e-9) return 0;
+  for (const x of withLinked([c])) x.in = +newIn.toFixed(4);
+  return d;
+}
+/** Slide (U): move c along its track; the clip before it lengthens or
+ *  shortens its tail and the clip after it its head, so c's content and the
+ *  sequence length stay. Without a neighbor, c slides into the free room. */
+function slideClip(c, delta) {
+  const prev = adjacentClip(c, "in"), next = adjacentClip(c, "out");
+  if ([c, prev, next].some((x) => x && isGroupLocked(x))) return TRIM_LOCKED;
+  let lo = prev ? MIN_DUR - prev.duration : -freeRoom(c, "in");
+  let hi = prev ? maxClipDur(prev) - prev.duration : Infinity;
+  if (next) {
+    hi = Math.min(hi, next.duration - MIN_DUR);
+    if (isMediaClip(next)) lo = Math.max(lo, -next.in / clipSpeed(next));
+  } else hi = Math.min(hi, freeRoom(c, "out"));
+  const d = clampD(delta, lo, hi);
+  if (Math.abs(d) < 1e-9) return 0;
+  if (prev) trimGroupTail(prev, prev.duration + d);
+  if (next) trimGroupHead(next, d, true);
+  for (const x of withLinked([c])) x.start = +(x.start + d).toFixed(4);
+  return d;
+}
+/** Lift (;) removes IN→OUT on the targeted tracks and leaves the gap.
+ *  Extract (') removes it and closes the gap. Linked partners are cut too,
+ *  locked clips stay whole, and IN / OUT clear afterwards (as in Premiere). */
+function liftExtract(extract) {
+  const t0 = project.inPoint, t1 = project.outPoint;
+  if (t0 == null || t1 == null || !(t1 - t0 > MIN_DUR)) {
+    toast(`Set IN and OUT first (I / O) to ${extract ? "extract" : "lift"} that range`);
+    return;
+  }
+  const lanes = editTargetTracks().map((t) => t.id);
+  if (!lanes.length) { toast("No targeted tracks — click a track name to target it"); return; }
+  const inside = (c) => clipEnd(c) > t0 + 1e-6 && c.start < t1 - 1e-6;
+  if (!extract && !project.clips.some((c) => lanes.includes(c.track) && inside(c) && !isGroupLocked(c))) {
+    toast("Nothing to lift between IN and OUT");
+    return;
+  }
+  pushUndo();
+  for (const id of lanes) punchTrackRange(id, t0, t1);
+  relinkClips(); // re-pair head / tail pieces across tracks
+  if (extract) {
+    const gap = t1 - t0;
+    const movers = withoutLocked(withLinked(project.clips.filter((c) =>
+      isEditTarget(c.track) && c.start >= t1 - 1e-6)));
+    for (const c of movers) c.start = Math.max(0, +(c.start - gap).toFixed(4));
+  }
+  project.inPoint = project.outPoint = null;
+  updateWorkArea();
+  syncTrimIOButton();
+  pruneSelection();
+  setTime(t0);
+  state.dirtyTimeline = true;
+  scheduleSave();
+  toast(`${extract ? "Extracted" : "Lifted"} ${(t1 - t0).toFixed(2)}s`);
+}
 function hasWorkArea() {
   return project.inPoint != null || project.outPoint != null;
 }
@@ -3758,6 +3946,116 @@ function trackAtEvent(e) {
   return null;
 }
 
+/* ── Edit tools (V / B / R / Y / U) ──
+   Select drags and trims as always. Ripple and Roll act on clip edges (the
+   trim handles); Slip and Slide act on the whole clip. */
+const EDIT_TOOLS = {
+  select: { key: "V", label: "Selection" },
+  ripple: { key: "B", label: "Ripple edit" },
+  roll: { key: "R", label: "Rolling edit" },
+  slip: { key: "Y", label: "Slip" },
+  slide: { key: "U", label: "Slide" },
+};
+function setEditTool(name) {
+  if (!EDIT_TOOLS[name]) return;
+  state.tool = name;
+  els.tracksContent.dataset.tool = name;
+  for (const b of document.querySelectorAll("[data-edit-tool]")) {
+    const on = b.dataset.editTool === name;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", on ? "true" : "false");
+  }
+}
+document.querySelectorAll("[data-edit-tool]").forEach((b) =>
+  b.addEventListener("click", () => setEditTool(b.dataset.editTool)));
+/* Live offset beside the pointer while a trim tool drags. */
+function showTrimReadout(ev, text) {
+  let el = runtime.trimReadout;
+  if (!el) {
+    el = runtime.trimReadout = document.createElement("div");
+    el.className = "trim-readout";
+    document.body.appendChild(el);
+  }
+  el.textContent = text;
+  el.style.left = ev.clientX + 14 + "px";
+  el.style.top = ev.clientY + 18 + "px";
+  el.hidden = false;
+}
+function hideTrimReadout() { if (runtime.trimReadout) runtime.trimReadout.hidden = true; }
+function fmtTrimDelta(d) {
+  const f = Math.round(Math.abs(d) * projectFps());
+  return `${d < 0 ? "−" : "+"}${Math.abs(d).toFixed(2)}s · ${f}f`;
+}
+/* Drag with a trim tool. Snapshot at pointerdown, restore before every step,
+   then run the op with the total delta — so the drag can swing both ways. */
+function startTrimToolGesture(e, c, mode) {
+  e.preventDefault();
+  const [tool, s] = mode.split("-");
+  const side = s === "l" ? "in" : "out";
+  const run = (d) => tool === "ripple" ? rippleTrim(c, side, d)
+    : tool === "roll" ? rollEdit(c, side, d)
+      : tool === "slip" ? slipClip(c, d) : slideClip(c, d);
+  const probe = run(0); // delta 0 changes nothing — it only asks "may I?"
+  if (typeof probe === "string") { toast(probe); return; }
+  state.gesture = true;
+  const snapshot = JSON.stringify(project.clips);
+  const cloneTr = (tr) => (tr ? { ...tr } : tr);
+  const base = new Map(project.clips.map((x) => [x.id, {
+    start: x.start, in: x.in, duration: x.duration, keyframes: x.keyframes,
+    transitionIn: cloneTr(x.transitionIn), transitionOut: cloneTr(x.transitionOut),
+  }]));
+  const restore = () => {
+    for (const x of project.clips) {
+      const b = base.get(x.id);
+      if (!b) continue;
+      x.start = b.start; x.in = b.in; x.duration = b.duration; x.keyframes = b.keyframes;
+      x.transitionIn = cloneTr(b.transitionIn); x.transitionOut = cloneTr(b.transitionOut);
+    }
+  };
+  // Snap targets ignore everything this edit moves.
+  const ignore = new Set(withLinked([c]).map((x) => x.id));
+  for (const n of [adjacentClip(c, "in"), adjacentClip(c, "out")])
+    if (n) for (const x of withLinked([n])) ignore.add(x.id);
+  const t0 = timeAtEvent(e), x0 = e.clientX;
+  const label = EDIT_TOOLS[tool].label;
+  let moved = false, applied = 0;
+  const onMove = (ev) => {
+    if (!moved && Math.abs(ev.clientX - x0) <= 3) return;
+    moved = true;
+    restore();
+    let d = timeAtEvent(ev) - t0;
+    if (tool === "roll" || (tool === "ripple" && side === "out")) {
+      const edge = side === "out" ? clipEnd(c) : c.start;
+      d = snapTime(edge + d, ignore) - edge;
+    } else if (tool === "slide") {
+      const a = snapTime(c.start + d, ignore) - c.start, b = snapTime(clipEnd(c) + d, ignore) - clipEnd(c);
+      const da = Math.abs(a - d), db = Math.abs(b - d);
+      if (db > 0 && (da === 0 || db < da)) d = b; else if (da > 0) d = a;
+    }
+    const r = run(d);
+    applied = typeof r === "number" ? r : 0;
+    state.dirtyTimeline = true;
+    renderInspector(true);
+    showTrimReadout(ev, `${label} ${fmtTrimDelta(applied)}`);
+  };
+  const onUp = () => {
+    window.removeEventListener("pointermove", onMove);
+    window.removeEventListener("pointerup", onUp);
+    hideTrimReadout();
+    state.gesture = false;
+    if (moved && Math.abs(applied) > 1e-9) {
+      runtime.undo.push(snapshot);
+      if (runtime.undo.length > 100) runtime.undo.shift();
+      runtime.redo.length = 0;
+      scheduleSave();
+    } else if (moved) restore();
+    state.dirtyTimeline = true;
+    renderInspector();
+    if (runtime.pendingSync) syncFromServer();
+  };
+  window.addEventListener("pointermove", onMove);
+  window.addEventListener("pointerup", onUp);
+}
 /* Right-click a clip: enable / lock / link menu. */
 els.tracksContent.addEventListener("contextmenu", (e) => {
   const clipDiv = e.target.closest(".clip");
@@ -3812,8 +4110,12 @@ els.tracksContent.addEventListener("pointerdown", (e) => {
     state.dirtyTimeline = true;
     renderInspector();
   }
-  const mode = e.target.classList.contains("handle")
-    ? (e.target.classList.contains("l") ? "trim-l" : "trim-r") : "move";
+  const onHandle = e.target.classList.contains("handle");
+  const edge = e.target.classList.contains("l") ? "l" : "r";
+  const tool = state.tool || "select";
+  if ((tool === "ripple" || tool === "roll") && onHandle) { startTrimToolGesture(e, c, `${tool}-${edge}`); return; }
+  if (tool === "slip" || tool === "slide") { startTrimToolGesture(e, c, tool); return; }
+  const mode = onHandle ? (edge === "l" ? "trim-l" : "trim-r") : "move";
   // a plain click (no drag) on a multi-selection collapses it to that clip on release
   startClipGesture(e, c, mode, !additive && state.selIds.size > 1);
 });
@@ -9207,6 +9509,8 @@ $("btnTitle").addEventListener("click", addTitle);
 $("btnAdjust").addEventListener("click", addAdjust);
 $("btnSplit").addEventListener("click", splitAtPlayhead);
 $("btnCloseGap").addEventListener("click", closeGapAtPlayhead);
+$("btnLift").addEventListener("click", () => liftExtract(false));
+$("btnExtract").addEventListener("click", () => liftExtract(true));
 $("btnNextGap").addEventListener("click", goToNextGap);
 $("btnTrimIO").addEventListener("click", trimToWorkArea);
 $("btnWorkAreaPlay").addEventListener("click", () => {
@@ -9843,6 +10147,13 @@ window.addEventListener("keydown", (e) => {
       if (!state.playing) play(); else stepPreviewRate(-1); // tap again = slower
     }
   }
+  else if (!e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey &&
+    Object.entries(EDIT_TOOLS).some(([, t]) => t.key === k.toUpperCase())) {
+    e.preventDefault();
+    setEditTool(Object.keys(EDIT_TOOLS).find((n) => EDIT_TOOLS[n].key === k.toUpperCase()));
+  }
+  else if (k === ";" && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); liftExtract(false); }
+  else if (k === "'" && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); liftExtract(true); }
   else if ((k === "e" || k === "E") && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
     e.preventDefault();
     toggleClipsDisabled();

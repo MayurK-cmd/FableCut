@@ -1847,6 +1847,61 @@ input[type=range] {
   opacity: .4;
 }
 
+/* Edit-tool picker in the timeline toolbar. */
+.tool-seg {
+  display: inline-flex;
+  gap: 0;
+  margin-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tool-seg .btn {
+  border: 0;
+  border-radius: 0;
+  padding: 3px 7px;
+}
+
+.tool-seg .btn + .btn {
+  border-left: 1px solid var(--border);
+}
+
+.tool-seg .btn.on {
+  color: #fff;
+  background: #7b6cff55;
+}
+
+.tool-seg .ico {
+  display: block;
+}
+
+/* Cursors say what a drag will do with the active tool. */
+#tracksContent[data-tool="ripple"] .clip .handle.l { cursor: w-resize; }
+#tracksContent[data-tool="ripple"] .clip .handle.r { cursor: e-resize; }
+#tracksContent[data-tool="roll"] .clip .handle { cursor: col-resize; }
+#tracksContent[data-tool="slip"] .clip,
+#tracksContent[data-tool="slip"] .clip .handle { cursor: ew-resize; }
+#tracksContent[data-tool="slide"] .clip,
+#tracksContent[data-tool="slide"] .clip .handle { cursor: move; }
+#tracksContent[data-tool="ripple"] .clip .handle,
+#tracksContent[data-tool="roll"] .clip .handle {
+  background: #ffd16655;
+}
+
+.trim-readout {
+  position: fixed;
+  z-index: 10001;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #000c;
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
 /* Locked lane / clip: hatched, no trim handles, not-allowed cursor. */
 .track.locked {
   background-image: repeating-linear-gradient(135deg, #ffffff07 0 6px, transparent 6px 12px);
