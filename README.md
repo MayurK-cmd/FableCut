@@ -82,7 +82,7 @@ same time.
   select all, <kbd>Esc</kbd> to deselect. Drag any selected clip to move the
   whole group; <kbd>Delete</kbd> removes all selected; <kbd>S</kbd> splits all
   selected at the playhead. Inspector shows an "N clips selected" banner.
-- Beat & cue markers (tap <kbd>⇧m</kbd> on the beat during playback) with edge snapping
+- Beat & cue markers (tap <kbd>m</kbd> on the beat during playback) — name and colour them, drag them on the ruler, jump with <kbd>⇧m</kbd> / <kbd>Alt+⇧m</kbd> or the **Markers** list; snapping targets (clip edges, playhead, markers, IN/OUT, keyframes, frame grid) are picked from the **▾** beside Snap
 - Press <kbd>Alt+t</kbd> to add an in/out transition based on the playhead position over the selected clip. The last used transition is remembered as the default. Drag the overlay triangle to adjust duration; <kbd>Delete</kbd> clears the focused transition.
 - Real decoded audio waveforms on clips
 - **Project bin folders** — tree view with expand/collapse; drag media or folders to nest; right-click the **Project** tab → New folder; drop files onto a folder to import into it
@@ -105,10 +105,12 @@ same time.
   view uses **native scrollbars** so overflow stays reachable; middle-click or
   <kbd>Alt</kbd>+drag pans. The **Fit** button (shown while zoomed) resets to the
   fit-to-stage baseline
-- Preview playback speed — shuttle the monitor through 1×/1.5×/2×/4× with **J**/**K**/**L**
-  (from a stop <kbd>J</kbd>/<kbd>L</kbd> start playback; while playing <kbd>L</kbd> steps faster
-  and <kbd>J</kbd> slower, <kbd>K</kbd> toggles play/pause and resets to 1×); affects the
-  preview player only, never the export
+- Full **J**/**K**/**L** shuttle — <kbd>L</kbd> plays forward, <kbd>J</kbd> in reverse; tap
+  again for 1.5×/2×/4×, the other key turns around, <kbd>K</kbd> stops. Hold <kbd>K</kbd> and
+  tap <kbd>J</kbd>/<kbd>L</kbd> to step a frame, or hold both to crawl at ¼ speed. Preview
+  only, never the export
+- Typed timecode — click the playhead readout (or type digits) to jump: `01:15:00`,
+  `1500`, `+30`, `12.5`; the IN / OUT readouts take typed times too
 - Resizable workspace: drag the divider between monitor and timeline (double-click resets), plus S/M/L timeline track-density presets (S hides thumbnails for compact tracks)
 - **Zoom to selection** (<kbd>⇧Z</kbd>) frames all selected clips, not just one
 - **IN/OUT work area** — set markers with <kbd>i</kbd> and <kbd>o</kbd> (<kbd>⇧I</kbd> / <kbd>⇧O</kbd> to clear). The Program Monitor shows playhead as `current / sequence duration`; when markers are set, IN, marked duration, and OUT stack on the right. **Export** has a Range dropdown (Entire timeline / IN–OUT; defaults to IN–OUT when markers exist) so you can keep markers for split/trim and still export the full sequence. Enabling **Limit** constrains playback to the marked range and maps <kbd>Home</kbd> / <kbd>End</kbd> to the IN and OUT positions rather than the full timeline. <kbd>t</kbd> splits clips at the markers; <kbd>⇧t</kbd> trims clips to the work (between marker in and marker out) area.

@@ -120,7 +120,7 @@
       </div>
       <div class="transport">
         <span class="tc-playhead" title="Playhead / sequence duration">
-          <span class="timecode" id="tcCurrent">00:00:00</span>
+          <span class="timecode" id="tcCurrent" title="Playhead — click (or type a digit) to enter a time">00:00:00</span>
           <span class="tc-slash">/</span>
           <span class="timecode dim" id="tcTotal">00:00:00</span>
         </span>
@@ -132,7 +132,7 @@
           <button class="btn icon" id="btnFwd" title="Forward 1 frame (→)">▶︎</button>
           <button class="btn icon" id="btnEnd" title="Go to end (End)">⏭</button>
           <button class="btn icon" id="btnMarkOut" title="Mark Out (O) — Source marks when Source is active; timeline work area in Program">O</button>
-          <button class="btn icon toggle" id="btnSpeed" title="Preview speed — click to cycle 1×/1.5×/2×/4×. While playing: L faster · J slower · K play/pause and reset to 1×. Preview only, not export.">1×</button>
+          <button class="btn icon toggle" id="btnSpeed" title="Preview speed — click to cycle 1×/1.5×/2×/4×. L forward · J reverse (tap again = faster) · K stop. Preview only, not export.">1×</button>
         </div>
         <div class="transport-end">
           <button type="button" class="btn icon hidden" id="btnInsert" title="Insert Source In→Out at the timeline playhead (,)" aria-label="Insert">
@@ -189,7 +189,8 @@
       <button class="btn tiny" id="btnRippleDelete" title="Ripple delete selection (⇧Del) — closes gap on targeted tracks"><svg class="ico" viewBox="0 0 16 16" width="14" height="14" style="vertical-align:-3px" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="square" stroke-linejoin="miter" d="M0.75 4.5H3.5V11.5H0.75M15.25 4.5H12.5V11.5H15.25"/><path fill="none" stroke="currentColor" stroke-width="1.45" stroke-linecap="round" d="M6.8 6.2L9.2 8.6M9.2 6.2L6.8 8.6"/><path fill="currentColor" d="M7.35 9.55h1.3v1.05h-1.3V9.55zm0 1.55h1.3v1.05h-1.3v-1.05z"/></svg> Ripple delete</button>
       <button class="btn tiny" id="btnLift" title="Lift (;) — remove IN→OUT on targeted tracks, leave the gap">Lift</button>
       <button class="btn tiny" id="btnExtract" title="Extract (') — remove IN→OUT on targeted tracks and close the gap">Extract</button>
-      <button class="btn tiny toggle on" id="btnSnap" title="Toggle snapping (N)"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" style="vertical-align:-3px" aria-hidden="true"><g transform="rotate(270 8 7)"><path fill="none" stroke="currentColor" stroke-width="3.25" stroke-linecap="butt" d="M4 10.25V7a4 4 0 0 1 8 0v3.25"/><path fill="currentColor" d="M2.375 10.75h3.25v2.5h-3.25zm8 0h3.25v2.5h-3.25z"/></g></svg> Snap</button>
+      <span class="snap-seg"><button class="btn tiny toggle on" id="btnSnap" title="Toggle snapping (N)"><svg class="ico" viewBox="0 0 16 16" width="13" height="13" style="vertical-align:-3px" aria-hidden="true"><g transform="rotate(270 8 7)"><path fill="none" stroke="currentColor" stroke-width="3.25" stroke-linecap="butt" d="M4 10.25V7a4 4 0 0 1 8 0v3.25"/><path fill="currentColor" d="M2.375 10.75h3.25v2.5h-3.25zm8 0h3.25v2.5h-3.25z"/></g></svg> Snap</button><button type="button" class="btn tiny" id="btnSnapMenu" title="Snap targets — clip edges, playhead, markers, IN/OUT, keyframes, frame grid" aria-label="Snap targets">▾</button></span>
+      <button type="button" class="btn tiny" id="btnMarkers" title="Markers — list, jump, rename, recolour (M add · ⇧M next · Alt+⇧M previous)"><svg class="ico" viewBox="0 0 16 16" width="12" height="12" style="vertical-align:-2px" aria-hidden="true"><path fill="currentColor" d="M8 1.5 13.5 7 8 12.5 2.5 7z"/></svg> Markers</button>
       <button class="btn tiny toggle" id="btnAudioHold" title="Audio Hold — while paused, loop one frame of audio at the playhead. Play/Stop turns it off."><svg class="ico" viewBox="0 0 16 16" width="13" height="13" style="vertical-align:-3px" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="square" d="M1.75 2.75V13.25M14.25 2.75V13.25"/><path fill="currentColor" d="M5.2 5.85h1.15v4.3H5.2V5.85zM7.05 5.85h0.55l2.85-2.2v8.7l-2.85-2.2H7.05V5.85z"/></svg> Audio hold</button>
       <span class="flex-spacer"></span>
       <span class="dim tiny-label">Zoom</span>
@@ -210,6 +211,7 @@
           <div class="work-dim work-dim-l hidden" id="workDimL"></div>
           <div class="work-dim work-dim-r hidden" id="workDimR"></div>
           <div class="tracks" id="tracks"></div>
+          <div class="snap-line hidden" id="snapLine"></div>
           <div class="playhead" id="playhead"><div class="playhead-cap"></div></div>
         </div>
       </div>
@@ -331,7 +333,8 @@
         <tr><td>Dbl-click bin / clip</td><td>Load into Source monitor</td></tr>
         <tr><td><kbd>,</kbd></td><td>Insert Source In→Out at the timeline playhead (ripples later clips)</td></tr>
         <tr><td><kbd>.</kbd></td><td>Replace — overwrite at playhead, or apply new Source In/Out to a timeline-loaded clip (ripples if duration changes)</td></tr>
-        <tr><td><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>Shuttle preview — <kbd>L</kbd> faster / <kbd>J</kbd> slower (1× · 1.5× · 2× · 4×); <kbd>K</kbd> play/pause + reset to 1×</td></tr>
+        <tr><td><kbd>J</kbd> <kbd>K</kbd> <kbd>L</kbd></td><td>Shuttle — <kbd>L</kbd> plays forward, <kbd>J</kbd> in reverse (silent); tap again for 1.5× · 2× · 4×, the other key turns around; <kbd>K</kbd> stops</td></tr>
+        <tr><td><kbd>K</kbd>+<kbd>J</kbd> / <kbd>K</kbd>+<kbd>L</kbd></td><td>Hold <kbd>K</kbd> and tap to step one frame; hold both to crawl at ¼ speed</td></tr>
         <tr><td><kbd>S</kbd></td><td>Split clip(s) at playhead (selection, else targeted tracks)</td></tr>
         <tr><td><kbd>G</kbd></td><td>Find next shared gap (wraps; respects IN/OUT)</td></tr>
         <tr><td><kbd>⇧</kbd>+<kbd>G</kbd></td><td>Close gap at playhead (targeted tracks)</td></tr>
@@ -361,12 +364,15 @@
       </table>
       <table class="keys">
         <tr><td><kbd>M</kbd></td><td>Add / remove marker at playhead</td></tr>
+        <tr><td><kbd>⇧</kbd>+<kbd>M</kbd> / <kbd>Alt</kbd>+<kbd>⇧</kbd>+<kbd>M</kbd></td><td>Go to next / previous marker</td></tr>
+        <tr><td>Marker on ruler</td><td>Drag to move · click to jump · double-click or right-click to name / colour / delete · <b>Markers</b> button lists them all</td></tr>
+        <tr><td><kbd>0</kbd>–<kbd>9</kbd> / click timecode</td><td>Type a time: <code>01:15:00</code>, packed <code>1500</code> (= 15 s), <code>+30</code> / <code>-1:00</code> to offset, <code>12.5</code> seconds. Click IN / OUT readouts to type those too</td></tr>
         <tr><td><kbd>I</kbd> / <kbd>O</kbd></td><td>Set Source In/Out (Source mode) or timeline work-area (Program; also bounds Export)</td></tr>
         <tr><td><kbd>⇧</kbd>+<kbd>I</kbd> / <kbd>⇧</kbd>+<kbd>O</kbd></td><td>Clear Source or timeline IN / OUT</td></tr>
         <tr><td><kbd>T</kbd></td><td>Split clips at IN/OUT markers</td></tr>
         <tr><td><kbd>⇧</kbd>+<kbd>T</kbd></td><td>Trim clips to IN/OUT (remove heads/tails)</td></tr>
         <tr><td>Limit (toolbar)</td><td>Play stops at OUT; Home/End use IN/OUT</td></tr>
-        <tr><td><kbd>N</kbd></td><td>Toggle snapping</td></tr>
+        <tr><td><kbd>N</kbd></td><td>Toggle snapping — <b>▾</b> picks targets (clip edges, playhead, markers, IN/OUT, keyframes, frame grid)</td></tr>
         <tr><td><kbd>+</kbd> / <kbd>-</kbd></td><td>Zoom timeline</td></tr>
         <tr><td><kbd>Z</kbd></td><td>Zoom to selected clip(s)</td></tr>
         <tr><td><kbd>Alt</kbd>+<kbd>Z</kbd></td><td>Zoom to IN–OUT work area</td></tr>

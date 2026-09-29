@@ -8,6 +8,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Named, coloured markers** — markers now carry an optional `label` and
+  `color` (gold · red · orange · green · cyan · blue · purple · pink) and show
+  their name on the ruler. Drag a marker to move it (it snaps), click it to
+  jump, double-click or right-click to rename / recolour / delete. A
+  **Markers** button lists every marker to jump to or edit, with Clear all.
+  <kbd>⇧M</kbd> / <kbd>Alt+⇧M</kbd> go to the next / previous marker. Marker
+  edits are now undoable.
+- **Snap targets** — the <b>▾</b> beside Snap picks what pulls a drag in: clip
+  edges, playhead, markers, IN/OUT, keyframes (new, off by default) and the
+  frame grid (rounds to whole frames when nothing else is in reach). A cyan
+  guide line shows where a drag snapped. Remembered per browser.
+- **Typed timecode** — click the playhead readout (or just type a digit) and
+  enter a time: `01:15:00`, packed digits (`1500` = 15 s), `+30` / `-1:00` to
+  offset, or seconds (`12.5`). The IN and OUT readouts take typed times too,
+  in both monitors.
+- **Full JKL** — <kbd>J</kbd> now plays in reverse (silent, frame by frame);
+  tapping <kbd>J</kbd> or <kbd>L</kbd> again speeds up in that direction and
+  the other key turns around at 1×. Hold <kbd>K</kbd> and tap
+  <kbd>J</kbd>/<kbd>L</kbd> to step one frame, or hold both to crawl at ¼
+  speed. Works in the Source monitor too.
 - **Trim tools** — a tool picker in the timeline toolbar with Premiere's
   shortcuts where they are free: **Selection** (<kbd>V</kbd>), **Ripple edit**
   (<kbd>B</kbd>), **Rolling edit** (<kbd>R</kbd> — Premiere's N is Snap here),
@@ -44,6 +64,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `[locked]`, `[disabled]`, `[unlinked]`.
 
 ### Changed
+- <kbd>K</kbd> only stops playback now (it used to toggle play); <kbd>Space</kbd>
+  still toggles. <kbd>⇧M</kbd> goes to the next marker instead of adding one
+  — plain <kbd>M</kbd> adds / removes.
 - The track enable toggle (eye / speaker) is now **output-only**: a disabled
   track is still hidden from preview and export, but edits no longer skip it —
   targeting decides that. As a side effect, soloing a track no longer blocks
