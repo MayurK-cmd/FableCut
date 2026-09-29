@@ -46,12 +46,12 @@ const SYNC = slice("function syncInspectorOffClip(", "/* ── Keyframe graphs"
 
 /* Build the sandbox. Each test gets a fresh one: `state` and the inspector
    stamp/gen counters live in the closure and must not leak between tests. */
-function makeSandbox({ fps = 50, clips = [] } = {}) {
+function makeSandbox({ fps = 50, clips = [], locked = false } = {}) {
   const state = { time: 0, dirtyTimeline: false, selId: null };
   const sandbox = { els: { inspector: null }, document: { activeElement: null }, holdRefreshes: 0 };
   const bindings = new Function(
     "ANIMATABLE", "DEFAULT_PROPS", "EASE", "clamp", "state", "els", "document",
-    "getClip", "projectFps", "ensureFont", "scheduleAudioHoldRefresh",
+    "getClip", "projectFps", "ensureFont", "scheduleAudioHoldRefresh", "isGroupLocked",
     `${LOGIC}\n${SYNC}\nreturn {
       kfChannel, kfTimeEps, playheadOverClip, kfAtPlayhead, propsAtPlayhead,
       fmtInspNum, setAnimProp, resetPropChannel, resetPropAtPlayhead,
@@ -65,6 +65,7 @@ function makeSandbox({ fps = 50, clips = [] } = {}) {
     (id) => clips.find((c) => c.id === id) || null,
     () => fps, () => {},
     () => { sandbox.holdRefreshes++; }, // the real one no-ops unless holding
+    () => locked, // isGroupLocked — a locked clip's inspector is read-only
   );
   return {
     state, els: sandbox.els, document: sandbox.document,
@@ -97,6 +98,7 @@ class FakeEl {
 }
 function fakeInspector({ inputs = [], buttons = [], vals = {} }) {
   return {
+    classList: { toggle() {} },
     querySelectorAll(sel) {
       if (sel === "[data-k]") return inputs;
       if (sel === "[data-kf]") return buttons;
@@ -584,6 +586,23 @@ test("syncInspectorPlayhead: off the clip, keyframed fields lock, statics stay e
   sb.syncInspectorPlayhead();
   assert.equal(scale.input.disabled, false);
   assert.equal(btnScale.disabled, false);
+});
+
+test("syncInspectorOffClip: a locked clip's fields and ◆ buttons are read-only", () => {
+  const sb = makeSandbox({ clips: [keyedClip()], locked: true });
+  const scale = scaleRow();
+  const rot = { input: new FakeEl({ dataset: { k: "rotation" } }), val: new FakeEl({ dataset: { unit: "" } }) };
+  const btn = kfBtn("scale");
+  sb.els.inspector = fakeInspector({
+    inputs: [scale.input, rot.input], buttons: [btn],
+    vals: { scale: scale.val, rotation: rot.val },
+  });
+  sb.state.selId = "c1";
+  sb.state.time = 12; // on-clip: only the lock can explain a disabled field
+  sb.syncInspectorOffClip(keyedClip());
+  assert.equal(scale.input.disabled, true, "keyed channel locked");
+  assert.equal(rot.input.disabled, true, "static props lock too");
+  assert.equal(btn.disabled, true, "no keyframes can be set on a locked clip");
 });
 
 /* ── transition envelope probe (canvas box-drag inversion) ──
