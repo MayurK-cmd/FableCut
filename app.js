@@ -4543,7 +4543,7 @@ function onRulerPointerDown(e) {
       runtime.redo.length = 0;
       project.markers.sort((a, b) => a.t - b.t);
       scheduleSave();
-    } else if (!moved) setTime(mk.t);
+    } else if (!moved) seekToMarker(mk);
     if (runtime.pendingSync) syncFromServer();
   };
   window.addEventListener("pointermove", onMove);
@@ -4682,8 +4682,16 @@ function toggleMarker() {
 }
 /* Shift+M / Alt+Shift+M — playhead to the next / previous marker. */
 function goToMarker(dir) {
-  const m = adjacentMarker(project.markers, state.time, dir);
+  // The playhead stops at the last clip, so markers past it are skipped —
+  // otherwise ⇧M would park at the end and silently repeat forever.
+  const end = projDur() + 1e-3;
+  const m = adjacentMarker((project.markers || []).filter((mk) => mk.t <= end), state.time, dir);
   if (!m) { toast(dir > 0 ? "No marker after the playhead" : "No marker before the playhead"); return; }
+  seekToMarker(m);
+}
+/* Park the playhead on a marker (Program monitor). */
+function seekToMarker(m) {
+  if (m.t > projDur() + 1e-3) { toast("That marker is past the end of the timeline"); return; }
   if (isSourceMode()) setMonitorMode("program");
   setTime(m.t);
   revealTime(m.t);
@@ -4775,8 +4783,7 @@ function openMarkerList(anchor) {
     if (go) {
       const m = list[+go.dataset.i];
       hideTrackCtxMenu();
-      if (isSourceMode()) setMonitorMode("program");
-      setTime(m.t); revealTime(m.t);
+      seekToMarker(m);
     } else if (ed) {
       const r = ed.getBoundingClientRect();
       openMarkerEditor(list[+ed.dataset.i], r.left, r.bottom + 4);

@@ -164,3 +164,36 @@ test("frame grid rounds only when no target is in reach, and doesn't count as a 
   near(hit.t, 2.01, "marker beats the grid");
   assert.equal(hit.hit, true);
 });
+
+/* ── Marker navigation vs. the end of the timeline ────────────────────── */
+
+function navWorld(markers, time, dur) {
+  const state = { time };
+  const toasts = [];
+  const env = {
+    project: { markers }, state, adjacentMarker: lib.adjacentMarker,
+    projDur: () => dur, toast: (m) => toasts.push(m),
+    isSourceMode: () => false, setMonitorMode: () => {},
+    setTime: (t) => { state.time = Math.min(Math.max(t, 0), dur); },
+    revealTime: () => {},
+  };
+  const code = slice("function goToMarker(", "/* Scroll the timeline so time t is on screen");
+  const api = new Function(...Object.keys(env), code + "\nreturn { goToMarker, seekToMarker };")(...Object.values(env));
+  return { ...api, state, toasts };
+}
+
+test("next marker skips markers past the last clip instead of sticking at the end", () => {
+  const w = navWorld([{ t: 4 }, { t: 20 }], 4, 10);
+  w.goToMarker(1);
+  assert.equal(w.state.time, 4, "playhead stays put");
+  assert.deepEqual(w.toasts, ["No marker after the playhead"]);
+});
+
+test("a marker past the end can't be jumped to, and says so", () => {
+  const w = navWorld([{ t: 20 }], 3, 10);
+  w.seekToMarker({ t: 20 });
+  assert.equal(w.state.time, 3);
+  assert.equal(w.toasts.length, 1);
+  w.seekToMarker({ t: 7 });
+  assert.equal(w.state.time, 7);
+});
