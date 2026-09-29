@@ -41,6 +41,7 @@ const CODE = [
   slice("function splitAtPlayhead(", "/* Cut a clip at timeline time t"),
   slice("function splitClipAt(", "/* Split every targeted-track clip"),
   slice("function shiftKF(", "/* ═════════════════ SVG CLIPS"),
+  slice("/* ── Trim tools: ripple, roll, slip, slide", "function hasWorkArea("),
 ].join("\n");
 
 const EXPORTS = [
@@ -48,6 +49,7 @@ const EXPORTS = [
   "replaceSourceAtPlayhead", "deleteSelected", "rippleDeleteSelected", "closeGapAtPlayhead",
   "splitAtPlayhead", "relinkClips", "toggleClipsDisabled", "toggleClipsLocked",
   "toggleLinkSelected", "linkRefusal", "isGroupLocked", "isEditTarget", "clipRenders",
+  "rippleTrim", "rollEdit", "slipClip", "slideClip", "liftExtract", "adjacentClip",
 ];
 
 const DEFAULT_TRACKS = ["V3", "V2", "V1", "A1", "A2", "A3"];
@@ -57,9 +59,10 @@ const DEFAULT_TRACKS = ["V3", "V2", "V1", "A1", "A2", "A3"];
    edit targeting. `selected` seeds the selection. */
 function world({
   trackIds = DEFAULT_TRACKS, disabled = [], locked = [], untargeted = [],
-  clips = [], selected = [], time = 0,
+  clips = [], selected = [], time = 0, media = [{ id: "m1", kind: "video", duration: 60 }],
+  inPoint = null, outPoint = null,
 } = {}) {
-  const project = { clips };
+  const project = { clips, media, inPoint, outPoint };
   const TRACKS = trackIds.map((id) => ({ id, kind: id[0] === "A" ? "audio" : "video" }));
   const state = {
     disabledTracks: new Set(disabled), lockedTracks: new Set(locked),
@@ -79,6 +82,10 @@ function world({
     // No speed ramps in these fixtures: linear media time.
     mediaTimeAt: (c, t) => c.in + Math.min(c.duration, Math.max(0, t - c.start)) * (c.props?.speed || 1),
     getClip: (id) => project.clips.find((c) => c.id === id) || null,
+    getMedia: (id) => project.media.find((m) => m.id === id),
+    clipSpeed: (c) => Math.min(8, Math.max(0.1, +(c.props?.speed) || 1)),
+    updateWorkArea() {}, syncTrimIOButton() {},
+    setTime: (t) => { state.time = t; },
     selectedClips: () => project.clips.filter((c) => state.selIds.has(c.id)),
     setSelection: (ids) => { state.selIds = new Set(ids); },
     selectClip: (id) => { state.selIds = new Set([id]); },
