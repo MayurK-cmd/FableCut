@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Track targeting** — click a track's name to target or untarget it. Split,
+  insert, replace, ripple delete, close gap, next gap, T / ⇧T and jump-to-cut
+  touch targeted tracks only, and Source placement lands on the targeted lanes.
+  A selection is still edited wherever it sits. Stored as
+  `project.untargetedTracks`.
+- **Track lock** — a padlock in the track header (`project.lockedTracks`).
+  Nothing on a locked track can be moved, trimmed, split, deleted or edited in
+  the inspector, and ripple edits leave it in place while the other tracks
+  shift.
+- **Clip lock and clip disable** — right-click a clip or use the new toggles at
+  the top of the inspector. A locked clip (`locked: true`) is pinned like a
+  locked track; a disabled clip (`disabled: true`, <kbd>⇧E</kbd>) stays on the
+  timeline but is left out of preview, audio and export. A linked A/V group
+  with any locked member counts as locked as a whole, so sync never breaks.
+- **Unlink / link audio and video** (<kbd>Ctrl/Cmd+L</kbd>, or the clip menu).
+  Unlinking stamps `unlinked: true` so the reload-time relink no longer pairs
+  the clips back up; Link re-joins a video and its audio once they line up.
+- **Agents respect locks** — `fablecut_patch_project` refuses `updateClip` /
+  `removeClip` on a locked clip (or one linked to it) and `addClip` onto a
+  locked track, unless the op carries `force: true`. `set:{locked:null}` always
+  works, and `setProject` accepts `lockedTracks` / `untargetedTracks`. The
+  compact project view lists locked / untargeted tracks and flags clips
+  `[locked]`, `[disabled]`, `[unlinked]`.
+
+### Changed
+- The track enable toggle (eye / speaker) is now **output-only**: a disabled
+  track is still hidden from preview and export, but edits no longer skip it —
+  targeting decides that. As a side effect, soloing a track no longer blocks
+  edits on the others.
+- The media bin's **+ Title / + Adjust / + Import / + URL** buttons share one
+  row; the "Assets" heading beside them is gone.
+- The editor's browser tab reads "FableCut - Video Editor".
+
 ## [1.8.0] - 2026-09-29
 
 ### Added

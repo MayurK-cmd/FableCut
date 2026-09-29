@@ -193,6 +193,10 @@ Examples in `library/svg/`: `sparkles.svg` (loop), `lower-third.svg`,
   ],
   "disabledTracks": [ "A2" ],
   // ^ optional — track ids (e.g. V4 V3 V2 V1 A1 A2 A3) omitted from preview/export when listed
+  "lockedTracks": [ "A3" ],
+  // ^ optional — locked lanes: nothing on them may be edited or moved (see Semantics)
+  "untargetedTracks": [ "V2" ],
+  // ^ optional — lanes edits skip (split, insert, ripple, close gap…); default: all targeted
   "encodeProfile": "hq",  // optional — fast-export profile id (see encoding-profiles.json)
   "tracks": [                          // optional — timeline lanes (default V3…V1 + A1…A4)
     { "id": "V3", "kind": "video" },   // video: higher number drawn on top (V1 under V2 under V3…)
@@ -220,6 +224,9 @@ Examples in `library/svg/`: `sparkles.svg` (loop), `lower-third.svg`,
       "duration": 5,             // clip length on timeline, seconds
       "name": "intro",
       "linkGroup": "lg_abc",     // OPTIONAL — AV link: video + per-channel audio stems share one id
+      "locked": true,            // OPTIONAL — locked by the user: leave it alone (MCP patch refuses edits)
+      "disabled": true,          // OPTIONAL — stays on the timeline, hidden from preview / audio / export
+      "unlinked": true,          // OPTIONAL — the user unlinked this clip; never auto-relinked on load
       "props": { /* all optional — see the props reference below */ },
       // OPTIONAL — keyframe animation. Times are seconds RELATIVE TO CLIP START.
       // "ease" sits on the DESTINATION keyframe of each segment:
@@ -375,22 +382,47 @@ glitch (RGB split + jitter) · pop (overshoot scale — stickers/captions).
  preserve stereo: L `−1`, R `+1`). Standalone music/SFX also live on A-tracks. Linked partners
  move/trim/split together — edit timing on any member of the group; do not treat
  A-tracks as music-only.
-- **Track enable/disable** — the track-header toggle persists to `disabledTracks`.
-  Disabled tracks are omitted from preview and export, and timeline edit ops
-  target enabled tracks only: split at playhead (S), insert ripple (`,`),
-  ripple delete (⇧Del), close gap (⇧G), split/trim at IN/OUT (T / ⇧T) and
-  replace punches all skip disabled lanes. (Ripple delete still *deletes* the
-  selection wherever it sits — clips on disabled tracks are removed too,
-  linked partners included; enablement only controls which later clips shift.)
-  Insert/replace *placement* follows
-  the same rule, source-patching style: a disabled picture lane (V1) skips the
-  picture, disabled stem lanes (A1/A2…) skip those stems; when every target
-  lane is disabled the op no-ops with a toast.
-- **Sync lock** — timeline edits that shift clips (insert ripple, ripple delete,
-  close gap, replace-with-duration-change) target **enabled** tracks only, but
-  linked AV partners always ride along even on a disabled track, so a linked
-  group never desyncs (on reload `relinkClips` rebuilds `linkGroup` from matching
-  start/in/duration — a desynced pair would silently unlink).
+- **Three track switches** (Premiere-style), all in the track header and all
+  persisted on `project.json`:
+  - **Enable (eye / speaker)** → `disabledTracks`. Output only: a disabled lane
+    is left out of preview, audio and export. It does *not* affect editing.
+  - **Target (click the track name — lit = targeted)** → `untargetedTracks`.
+    Decides which lanes an edit touches when nothing is selected: split at
+    playhead (S), insert ripple (`,`), replace punches (`.`), ripple-delete
+    shifting (⇧Del), close gap (⇧G), next gap (G), split / trim at IN/OUT
+    (T / ⇧T) and jump to cut (↑ / ↓). Source placement follows targeting too:
+    the picture lands on V1 if it is targeted, else the lowest targeted video
+    lane (none → the edit lands audio-only); stems land on the first two
+    targeted audio lanes. A **selection** is always edited wherever it sits.
+  - **Lock (padlock)** → `lockedTracks`. Nothing on a locked lane can be
+    moved, trimmed, split, deleted or edited in the inspector, and ripples leave
+    it where it is while the other lanes shift. A locked lane is never an edit
+    target. Typical use: lock the music bed, then ripple the picture freely.
+- **Clip lock / enable** — right-click a clip, or use the toggles at the top of
+  the inspector. `locked: true` pins one clip the same way a locked lane does.
+  `disabled: true` (⇧E) keeps the clip on the timeline but drops it from
+  preview, audio and export — like a disabled lane, for a single clip. Both
+  apply to the clip's whole linked group.
+- **Locks and linked groups** — a linked A/V group with *any* locked member
+  (its own flag or its lane) counts as locked as a whole, so sync is never
+  broken by a partial move.
+- **Sync lock** — edits that shift clips move the targeted lanes; linked AV
+  partners always ride along, even on an untargeted lane, and locked groups
+  stay put. On reload `relinkClips` rebuilds `linkGroup` from matching
+  mediaId / start / in / duration.
+- **Unlink / link (Ctrl/Cmd+L)** — unlinking a group removes its `linkGroup`
+  and stamps `unlinked: true` on each member, so the reload-time relink leaves
+  them apart; picture and audio then move, trim and delete separately. Link
+  (select one video clip plus its audio, Ctrl/Cmd+L) only joins clips of the
+  same file that line up exactly — same start, in and duration — because a
+  link here means identical timing.
+- **Agents and locks** — `fablecut_patch_project` refuses `updateClip` /
+  `removeClip` on locked material (own flag, locked lane, or a linked partner
+  of one) and `addClip` onto a locked lane. Treat locked clips as the user's
+  finished work: leave them alone. Only when the user asks you to change one,
+  pass `force: true` on that op, or unlock first with
+  `updateClip set:{locked:null}` (always allowed). `fablecut_set_project`,
+  REST `PUT` and direct file edits are not guarded — respect locks there too.
 - Media is `fit`-ted to the canvas (default "contain"), then crop → scale/x/y/
   rotation → flips apply.
 - `props` keys are all optional — missing keys get the defaults above.
@@ -405,7 +437,7 @@ glitch (RGB split + jitter) · pop (overshoot scale — stickers/captions).
   `start: +t, in: +t×speed, duration: rest`.
 - **Jump to cut** — `↑` / `↓` move the playhead to the previous / next clip
   In or Out. Selection first (that clip’s start then end); no selection walks
-  enabled-track cuts. Source monitor: 0 / In / Out / duration. Does not change
+  targeted-track cuts. Source monitor: 0 / In / Out / duration. Does not change
   `project.json`.
 - `bgRemove` and `chromaKey` can combine with all filters; heavy pixel work is
   automatic (only runs when those props are set).
@@ -507,28 +539,34 @@ of previous durations.
 
 **Insert / replace at playhead (3-point editing)**: load media into the Source
 monitor (double-click a bin item or timeline clip), mark the window with I/O,
-then `,` (insert icon) splits straddling clips on enabled tracks at the
+then `,` (insert icon) splits straddling clips on targeted tracks at the
 playhead, ripples everything later to the right by the window length, and drops
 the Source window in — video brings its linked audio stems. `.` (replace icon)
 overwrites instead: punches the placement tracks (V1 + linked stems) over
 [playhead, +window) with no ripple. Placement lanes are resolved against the
-live track list — if V1 / A1 / A2 were removed, the lowest remaining lanes of
-the right kind are used instead. A clip loaded from a disabled track can't be
-retargeted with `.` (toast) until its track is enabled. When Source was loaded *from* a timeline
+live track list and follow targeting — if V1 / A1 / A2 were removed or
+untargeted, the lowest remaining targeted lanes of the right kind are used
+instead. Locked clips are never punched or split. A locked clip loaded into
+Source can't be retargeted with `.` (toast) until it is unlocked. When Source was loaded *from* a timeline
 clip, `.` instead retargets that clip's In/Out (and its linked stems) and
 ripples later clips on its tracks if the duration changed.
 
 **Ripple delete**: select clip(s), then ⇧Del or the timeline-toolbar **Ripple
 delete** — removes the selection (linked partners included) and pulls later
-clips left on each enabled track to close the gap. Plain Del lifts (leaves a
-gap). Sync lock applies: linked partners on disabled tracks move with the
-ripple. An unselected clip that merely *overlaps* the deleted range stays put —
+clips left on each targeted track to close the gap. Plain Del lifts (leaves a
+gap). Sync lock applies: linked partners on untargeted tracks move with the
+ripple, and locked clips are neither deleted nor moved. An unselected clip that merely *overlaps* the deleted range stays put —
 its overlap ends up bridging the shifted-in clip, so a crossfade across the cut
 survives.
 
 **Jump to cut**: select a clip, then ↑ / ↓ — playhead snaps to its In, then
 Out (further taps walk neighboring cuts). No selection → previous / next cut
-on enabled tracks. Source monitor: same keys jump among 0 / In / Out / duration.
+on targeted tracks. Source monitor: same keys jump among 0 / In / Out / duration.
+
+**Protect finished work**: lock the lanes you are done with (`lockedTracks`,
+or the padlock), e.g. `setProject {lockedTracks:["A3"]}` for a music bed. Now
+insert, ripple delete and close gap re-time the picture without touching it.
+To try an alternative without deleting a clip, disable it (⇧E / `disabled:true`).
 
 **Title card**: `{kind:"text", mediaId:null, track:"V2", props:{text,fontSize,color}}`.
 
