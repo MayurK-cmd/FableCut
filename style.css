@@ -418,6 +418,21 @@ body.track-size-s .clip.selected {
   align-items: center;
 }
 
+/* Media bin: the add buttons share one row, no heading beside them. */
+.panel-head-actions.bin-actions {
+  flex: 1;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.panel-head-actions.bin-actions .btn {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .upper {
   display: grid;
   grid-template-columns: var(--side-panel-w) minmax(0, 1fr) var(--side-panel-w);
@@ -1359,6 +1374,51 @@ body.track-size-s .clip.selected {
   padding-top: 40px;
 }
 
+/* Enable / lock / link toggles at the top of the inspector. */
+.clip-flags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.clip-flag {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.clip-flag:hover {
+  color: #fff;
+}
+
+.clip-flag.on[data-clip-cmd="disable"] {
+  color: #ffd0d1;
+  background: #e5484d2e;
+  border-color: #e5484d88;
+}
+
+.clip-flag.on[data-clip-cmd="lock"] {
+  color: #111;
+  background: #ffb454;
+  border-color: #ffb454;
+}
+
+.clip-flag.on[data-clip-cmd="link"] {
+  color: #e8e8ff;
+  background: #7b6cff33;
+  border-color: #7b6cff88;
+}
+
+#inspector.locked .insp-section {
+  opacity: .6;
+}
+
 .insp-multi {
   margin-bottom: 12px;
   padding: 7px 9px;
@@ -1545,7 +1605,7 @@ input[type=range] {
 }
 
 .track-headers {
-  width: 68px;
+  width: 86px;
   flex: none;
   border-right: 1px solid var(--border);
   padding-top: 0;
@@ -1593,10 +1653,74 @@ input[type=range] {
   letter-spacing: .5px;
 }
 
+/* The track name doubles as the targeting toggle (Premiere's blue patch):
+   lit = edits touch this lane. */
 .track-head .track-id {
   flex: 1;
   min-width: 0;
-  max-width: 3ch;
+  max-width: 4ch;
+  margin: 0;
+  padding: 1px 3px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.track-head .track-id:hover {
+  color: #fff;
+  background: #ffffff12;
+}
+
+.track-head .track-id[aria-pressed="true"] {
+  color: #e8e8ff;
+  background: #7b6cff33;
+  border-color: #7b6cff88;
+}
+
+.track-head .track-id[aria-pressed="true"]:hover {
+  background: #7b6cff4d;
+}
+
+.track-lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dim);
+  opacity: .55;
+  cursor: pointer;
+}
+
+.track-lock .track-ico {
+  display: block;
+  width: 11px;
+  height: 11px;
+  pointer-events: none;
+}
+
+.track-lock:hover {
+  color: #fff;
+  opacity: 1;
+  background: #ffffff12;
+}
+
+.track-lock.on {
+  color: #111;
+  opacity: 1;
+  background: #ffb454;
+  border-color: #ffb454;
 }
 
 .track-solo {
@@ -1651,7 +1775,9 @@ input[type=range] {
 }
 
 .ctx-menu .ctx-item {
-  display: block;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
   width: 100%;
   margin: 0;
   padding: 6px 10px;
@@ -1672,6 +1798,12 @@ input[type=range] {
 .ctx-menu .ctx-item:disabled {
   opacity: .45;
   cursor: default;
+}
+
+.ctx-menu .ctx-item kbd {
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
 }
 
 .track-toggle {
@@ -1713,6 +1845,51 @@ input[type=range] {
 
 .track.disabled {
   opacity: .4;
+}
+
+/* Locked lane / clip: hatched, no trim handles, not-allowed cursor. */
+.track.locked {
+  background-image: repeating-linear-gradient(135deg, #ffffff07 0 6px, transparent 6px 12px);
+}
+
+.clip.locked {
+  cursor: not-allowed;
+}
+
+.clip.locked .handle {
+  display: none;
+}
+
+.clip.locked .clip-body::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, #00000055 6px 8px);
+  pointer-events: none;
+}
+
+.clip.locked .clip-body::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  right: 4px;
+  width: 9px;
+  height: 10px;
+  background: #ffb454;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='black' stroke-width='2' d='M5 7V5a3 3 0 0 1 6 0v2'/%3E%3Crect x='3' y='7' width='10' height='8' rx='1.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='black' stroke-width='2' d='M5 7V5a3 3 0 0 1 6 0v2'/%3E%3Crect x='3' y='7' width='10' height='8' rx='1.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  pointer-events: none;
+}
+
+/* Disabled clip: still on the timeline, gone from preview and export. */
+.clip.disabled .clip-body {
+  opacity: .35;
+  filter: grayscale(1);
+}
+
+.clip.disabled .clip-label {
+  text-decoration: line-through;
 }
 
 .timeline-scroll {

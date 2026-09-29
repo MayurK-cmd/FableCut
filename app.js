@@ -262,6 +262,10 @@ function removeTimelineTrack(trackId) {
     state.disabledTracks.delete(trackId);
     project.disabledTracks = [...state.disabledTracks].sort();
   }
+  state.lockedTracks.delete(trackId);
+  state.untargetedTracks.delete(trackId);
+  project.lockedTracks = [...state.lockedTracks].sort();
+  project.untargetedTracks = [...state.untargetedTracks].sort();
   if (Array.isArray(state.soloRestore)) {
     state.soloRestore = state.soloRestore.filter((id) => id !== trackId);
   }
@@ -309,6 +313,47 @@ function showTrackCtxMenu(clientX, clientY, track) {
   menu.style.left = Math.max(pad, x) + "px";
   menu.style.top = Math.max(pad, y) + "px";
   btn.focus();
+}
+/* Clip right-click menu: enable / lock / link for the clip's selection. */
+function showClipCtxMenu(clientX, clientY, c) {
+  hideTrackCtxMenu();
+  if (!state.selIds.has(c.id)) selectClip(c.id);
+  const group = withLinked(selectedClips());
+  const menu = document.createElement("div");
+  menu.className = "ctx-menu";
+  menu.id = "trackCtxMenu";
+  const item = (label, keys, run, disabledReason) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ctx-item";
+    btn.innerHTML = `<span>${escapeHtml(label)}</span>` + (keys ? `<kbd>${escapeHtml(keys)}</kbd>` : "");
+    if (disabledReason) { btn.disabled = true; btn.title = disabledReason; }
+    else btn.addEventListener("click", () => { hideTrackCtxMenu(); run(); });
+    menu.appendChild(btn);
+    return btn;
+  };
+  const anyEnabled = group.some((x) => x.disabled !== true);
+  const anyUnlocked = group.some((x) => x.locked !== true);
+  const locked = group.some(isClipLocked);
+  item(anyEnabled ? "Disable clip" : "Enable clip", "Shift+E", toggleClipsDisabled,
+    locked ? "Locked — unlock to change" : null);
+  item(anyUnlocked ? "Lock clip" : "Unlock clip", "", toggleClipsLocked);
+  const linked = selectedClips().some((x) => x.linkGroup || x.linkedId);
+  if (linked) item("Unlink audio / video", "Ctrl+L", toggleLinkSelected, locked ? "Locked — unlock to change" : null);
+  else if (c.kind === "video" || c.kind === "audio") {
+    const why = linkRefusal(selectedClips());
+    item("Link audio / video", "Ctrl+L", toggleLinkSelected, why);
+  }
+  document.body.appendChild(menu);
+  trackCtxMenu = menu;
+  const pad = 6;
+  const w = menu.offsetWidth, h = menu.offsetHeight;
+  let x = clientX, y = clientY;
+  if (x + w + pad > window.innerWidth) x = window.innerWidth - w - pad;
+  if (y + h + pad > window.innerHeight) y = window.innerHeight - h - pad;
+  menu.style.left = Math.max(pad, x) + "px";
+  menu.style.top = Math.max(pad, y) + "px";
+  menu.querySelector(".ctx-item:not(:disabled)")?.focus();
 }
 document.addEventListener("pointerdown", (e) => {
   if (trackCtxMenu && !trackCtxMenu.contains(e.target)) hideTrackCtxMenu();
@@ -374,6 +419,8 @@ const project = {
   inPoint: null,  // timeline work-area IN (seconds), or null
   outPoint: null, // timeline work-area OUT (seconds), or null
   disabledTracks: [], // track ids (V4…A3) hidden from preview/export when listed
+  lockedTracks: [],     // track ids no edit may change (UI and MCP patch)
+  untargetedTracks: [], // track ids edits skip (split, insert, ripple, close gap…)
   exportFrame: null, // optional {x,y,w,h} delivery crop inside width×height canvas
   encodeProfile: null, // optional fast-export profile id (overrides browser setting)
   tracks: null, // optional [{id, kind}] — null means default V3…V1 + A1…A4
@@ -412,6 +459,8 @@ const state = {
   workAreaPlay: false,   // when true, play + Home/End stay inside IN/OUT
   binTab: "project",     // project | elements | sfx | svg
   disabledTracks: new Set(), // mirror of project.disabledTracks for fast lookup
+  lockedTracks: new Set(),   // mirror of project.lockedTracks
+  untargetedTracks: new Set(), // mirror of project.untargetedTracks
   soloId: null,              // track id when solo is active, else null
   soloRestore: null,         // disabledTracks snapshot taken when solo engaged
   transFocus: null,      // "in" | "out" — inspector transition row highlighted
@@ -424,6 +473,29 @@ function normalizeDisabledTracks(raw) {
 }
 function isTrackEnabled(id) {
   return !state.disabledTracks.has(id);
+}
+/* ── Track targeting, locks and clip enable ──
+   Three independent switches, Premiere-style:
+   • enabled (eye)  — output only: hidden from preview, audio and export.
+   • targeted       — which lanes an edit touches: split, insert, ripple
+                      delete, close gap, T / ⇧T, jump-to-cut, Source placement.
+   • locked         — nothing may change it: not the mouse, not the keyboard,
+                      not a ripple (locked lanes stay put while others shift).
+   A clip can also be locked or disabled on its own. A linked A/V group with
+   any locked member counts as locked as a whole, so sync lock never splits it. */
+function isTrackTargeted(id) { return !state.untargetedTracks.has(id); }
+function isTrackLocked(id) { return state.lockedTracks.has(id); }
+/** Lanes an edit may touch: targeted and not locked. */
+function isEditTarget(id) { return isTrackTargeted(id) && !isTrackLocked(id); }
+function isClipLocked(c) { return !!c && (c.locked === true || isTrackLocked(c.track)); }
+function isGroupLocked(c) { return withLinked([c]).some(isClipLocked); }
+/** Drop every clip whose linked group is locked. */
+function withoutLocked(clips) { return clips.filter((c) => !isGroupLocked(c)); }
+/** Does this clip reach the picture / the mix? Track output and clip enable. */
+function clipRenders(c) { return isTrackEnabled(c.track) && c.disabled !== true; }
+function toastLocked(partial = false) {
+  toast(partial ? "Locked clips were left untouched — unlock them to edit"
+    : "Locked — unlock the clip or its track to edit");
 }
 function syncTrackDisabledUI(id) {
   const on = isTrackEnabled(id);
@@ -445,9 +517,28 @@ function syncTrackDisabledUI(id) {
       sBtn.title = solo ? "Unsolo track" : "Solo track (mute all others)";
     }
   }
+  const locked = isTrackLocked(id), targeted = isTrackTargeted(id);
+  if (head) {
+    head.classList.toggle("locked", locked);
+    head.classList.toggle("untargeted", !targeted);
+    const tBtn = head.querySelector(".track-id");
+    if (tBtn) {
+      tBtn.setAttribute("aria-pressed", targeted ? "true" : "false");
+      tBtn.title = targeted
+        ? "Targeted — edits (split, insert, ripple, close gap) touch this track. Click to untarget"
+        : "Not targeted — edits skip this track. Click to target";
+    }
+    const lBtn = head.querySelector(".track-lock");
+    if (lBtn) {
+      lBtn.setAttribute("aria-pressed", locked ? "true" : "false");
+      lBtn.classList.toggle("on", locked);
+      lBtn.title = locked ? "Unlock track" : "Lock track — nothing on it can be edited or moved";
+    }
+  }
   if (row) {
     row.classList.toggle("disabled", !on);
     row.classList.toggle("solo", solo);
+    row.classList.toggle("locked", locked);
   }
 }
 function syncAllTrackDisabledUI() {
@@ -482,6 +573,24 @@ function toggleTrackEnabled(id) {
   if (state.disabledTracks.has(id)) state.disabledTracks.delete(id);
   else state.disabledTracks.add(id);
   project.disabledTracks = [...state.disabledTracks].sort();
+  syncAllTrackDisabledUI();
+  scheduleSave();
+}
+function toggleTrackLocked(id) {
+  if (!TRACK_IDS.has(id)) return;
+  if (state.lockedTracks.has(id)) state.lockedTracks.delete(id);
+  else state.lockedTracks.add(id);
+  project.lockedTracks = [...state.lockedTracks].sort();
+  syncAllTrackDisabledUI();
+  state.dirtyTimeline = true; // clips on the lane redraw with the lock hatch
+  renderInspector();
+  scheduleSave();
+}
+function toggleTrackTargeted(id) {
+  if (!TRACK_IDS.has(id)) return;
+  if (state.untargetedTracks.has(id)) state.untargetedTracks.delete(id);
+  else state.untargetedTracks.add(id);
+  project.untargetedTracks = [...state.untargetedTracks].sort();
   syncAllTrackDisabledUI();
   scheduleSave();
 }
@@ -1131,6 +1240,10 @@ function applyProject(data) {
     if (m.folderId && !folderIds.has(m.folderId)) m.folderId = null;
   }
   state.disabledTracks = new Set(disabledTracks);
+  project.lockedTracks = normalizeDisabledTracks(data.lockedTracks);
+  project.untargetedTracks = normalizeDisabledTracks(data.untargetedTracks);
+  state.lockedTracks = new Set(project.lockedTracks);
+  state.untargetedTracks = new Set(project.untargetedTracks);
   state.soloId = null;
   state.soloRestore = null;
   // One-shot migration for projects saved before props.pan existed. Gated by
@@ -1206,10 +1319,14 @@ function projectJSON() {
     tracks: serializeTracks(),
     media: media.filter((m) => !m.transient).map(({ id, name, kind, src, duration, width, height, folderId }) =>
       ({ id, name, kind, src, duration, width, height, folderId: folderId || null })),
-    clips: clips.map(({ id, mediaId, kind, track, start, in: inn, duration, name, props, keyframes, transitionIn, transitionOut, linkedId, linkGroup }) => {
+    clips: clips.map(({ id, mediaId, kind, track, start, in: inn, duration, name, props, keyframes, transitionIn, transitionOut, linkedId, linkGroup, locked, disabled, unlinked }) => {
       const clipOut = { id, mediaId, kind, track, start, in: inn, duration, name, props, keyframes, transitionIn, transitionOut };
       if (linkGroup) clipOut.linkGroup = linkGroup;
       if (linkedId) clipOut.linkedId = linkedId;
+      // Written only when set, so untouched projects stay byte-identical.
+      if (locked === true) clipOut.locked = true;
+      if (disabled === true) clipOut.disabled = true;
+      if (unlinked === true) clipOut.unlinked = true;
       return clipOut;
     }),
     markers: (markers || []).map(({ t, label }) => (label ? { t, label } : { t })),
@@ -1217,6 +1334,10 @@ function projectJSON() {
     outPoint: outPoint == null ? null : outPoint,
     disabledTracks: normalizeDisabledTracks(disabledTracks),
   };
+  const locked = normalizeDisabledTracks(project.lockedTracks);
+  const untargeted = normalizeDisabledTracks(project.untargetedTracks);
+  if (locked.length) out.lockedTracks = locked;
+  if (untargeted.length) out.untargetedTracks = untargeted;
   const ef = getExportFrame();
   if (ef) out.exportFrame = ef;
   if (encodeProfile) out.encodeProfile = encodeProfile;
@@ -1894,6 +2015,66 @@ function withLinked(clips) {
   }
   return [...out.values()];
 }
+/* ── Clip enable / lock / link ── Each acts on the selection's whole linked
+   group, so picture and stems never end up in different states. */
+function toggleClipsDisabled() {
+  const group = withLinked(selectedClips());
+  if (!group.length) { toast("Select a clip first"); return; }
+  if (group.some(isClipLocked)) { toastLocked(); return; }
+  const disable = group.some((c) => c.disabled !== true);
+  pushUndo();
+  for (const c of group) { if (disable) c.disabled = true; else delete c.disabled; }
+  state.dirtyTimeline = true;
+  scheduleSave(); renderInspector();
+  toast(disable ? "Clip disabled — hidden from preview and export" : "Clip enabled");
+}
+function toggleClipsLocked() {
+  const group = withLinked(selectedClips());
+  if (!group.length) { toast("Select a clip first"); return; }
+  const lock = group.some((c) => c.locked !== true);
+  pushUndo();
+  for (const c of group) { if (lock) c.locked = true; else delete c.locked; }
+  state.dirtyTimeline = true;
+  scheduleSave(); renderInspector();
+  const trackLocked = !lock && group.some((c) => isTrackLocked(c.track));
+  toast(lock ? "Clip locked" : trackLocked ? "Clip unlocked — its track is still locked" : "Clip unlocked");
+}
+/** Why these clips can't be linked, or null when they can. Links in FableCut
+ *  mean identical timing, so only aligned clips of one file qualify: one
+ *  video plus its audio (e.g. after unlink → nudge → nudge back). */
+function linkRefusal(clips) {
+  const near = (a, b) => Math.abs((+a || 0) - (+b || 0)) < 1e-3;
+  if (clips.length < 2) return "Select a video clip and its audio to link";
+  if (clips.some((c) => c.kind !== "video" && c.kind !== "audio")) return "Only video and audio clips can be linked";
+  if (clips.filter((c) => c.kind === "video").length !== 1) return "Select exactly one video clip and its audio";
+  const v = clips.find((c) => c.kind === "video");
+  if (clips.some((c) => !c.mediaId || c.mediaId !== v.mediaId)) return "Linked clips must come from the same media file";
+  if (clips.some((c) => !near(c.start, v.start) || !near(c.in, v.in) || !near(c.duration, v.duration)))
+    return "Line the clips up first — same start, in point and length";
+  return null;
+}
+function toggleLinkSelected() {
+  const sel = selectedClips();
+  if (!sel.length) { toast("Select clips first"); return; }
+  const linked = sel.filter((c) => c.linkGroup || c.linkedId);
+  if (linked.length) {
+    const group = withLinked(linked);
+    if (group.some(isClipLocked)) { toastLocked(); return; }
+    pushUndo();
+    for (const c of group) { delete c.linkGroup; delete c.linkedId; c.unlinked = true; }
+    toast("Unlinked — video and audio now move and trim separately");
+  } else {
+    const why = linkRefusal(sel);
+    if (why) { toast(why); return; }
+    if (sel.some(isClipLocked)) { toastLocked(); return; }
+    pushUndo();
+    const lg = "lg_" + uid();
+    for (const c of sel) { c.linkGroup = lg; delete c.linkedId; delete c.unlinked; }
+    toast("Linked");
+  }
+  state.dirtyTimeline = true;
+  scheduleSave(); renderInspector();
+}
 function syncLinkedTiming(c) {
   for (const L of withLinked([c])) {
     if (L.id === c.id) continue;
@@ -1906,20 +2087,20 @@ function syncLinkedTiming(c) {
     }
   }
 }
-/* Rebuild AV linkGroups after load. Unlinking isn't supported, so any video +
-   audio clips that share mediaId and the same start/in/duration belong together
-   (e.g. picture + L/R/C stems from one file). Legacy pairwise linkedId is cleared
-   in favor of linkGroup. */
+/* Rebuild AV linkGroups after load: video + audio clips that share mediaId and
+   the same start/in/duration belong together (e.g. picture + L/R/C stems from
+   one file). A clip the user unlinked carries `unlinked: true` and is never
+   re-paired. Legacy pairwise linkedId is cleared in favor of linkGroup. */
 function relinkClips() {
   const near = (a, b) => Math.abs((+a || 0) - (+b || 0)) < 1e-3;
   for (const c of project.clips) {
     delete c.linkGroup;
     delete c.linkedId;
   }
-  const audios = project.clips.filter((c) => c.kind === "audio" && c.mediaId);
+  const audios = project.clips.filter((c) => c.kind === "audio" && c.mediaId && c.unlinked !== true);
   const used = new Set();
   for (const v of project.clips) {
-    if (v.kind !== "video" || !v.mediaId) continue;
+    if (v.kind !== "video" || !v.mediaId || v.unlinked === true) continue;
     const partners = audios.filter((a) =>
       !used.has(a.id) &&
       a.mediaId === v.mediaId &&
@@ -2020,11 +2201,12 @@ function connectIsolatedChannel(ctx, srcNode, gainNode, ch, nCh) {
 }
 
 function addClipFromMedia(m, trackId, at) {
-  pushUndo();
   const kind = m.kind;
   trackId = trackId || defaultTrackFor(kind);
   const tr = TRACKS.find((t) => t.id === trackId);
   if (!tr || (kind === "audio") !== (tr.kind === "audio")) trackId = defaultTrackFor(kind);
+  if (isTrackLocked(trackId)) { toast(`${trackId} is locked — unlock it to add clips`); return null; }
+  pushUndo();
   const start = Math.max(0, at ?? state.time);
   const duration = m.duration || 5;
   const name = m.name.replace(/\.[^.]+$/, "");
@@ -2082,41 +2264,43 @@ function toastSourceWindowMissing() {
   else
     toast("Mark a Source range (I / O) — or load media with a known duration");
 }
-/** Tracks that receive newly placed Source clips (picture + linked stems). */
+/** Lanes that receive newly placed Source clips: [picture, ...stems].
+ *  Source patching follows track targeting — the preferred lane (V1 / A1 / V3
+ *  for SVG) when it is targeted and unlocked, else the lowest-numbered lane
+ *  that is. Resolved against the live track list, since any lane can be
+ *  removed. For video, `picture` is null when no video lane is a target (the
+ *  edit lands audio-only); for other media an empty list means nowhere to go. */
 function sourceEditTracks(m) {
-  // Resolve against the live track list: any lane (V1 and A1 included) can be
-  // removed, and a clip on a missing lane would be invisible.
-  const lane = m.kind === "audio" ? "audio" : "video";
+  const byNum = (x, y) => (parseInt(x.slice(1), 10) || 0) - (parseInt(y.slice(1), 10) || 0);
+  const targets = (kind) => TRACKS.filter((t) => t.kind === kind && isEditTarget(t.id))
+    .map((t) => t.id).sort(byNum);
+  const lanes = targets(m.kind === "audio" ? "audio" : "video");
   const preferred = defaultTrackFor(m.kind);
-  let pictureTrack = TRACKS.some((t) => t.id === preferred && t.kind === lane) ? preferred : null;
-  if (!pictureTrack) {
-    // Lowest-numbered lane of the right kind (V1-ish / A1-ish).
-    const ids = TRACKS.filter((t) => t.kind === lane).map((t) => t.id)
-      .sort((a, b) => (parseInt(a.slice(1), 10) || 0) - (parseInt(b.slice(1), 10) || 0));
-    pictureTrack = ids[0] || null;
-  }
-  if (!pictureTrack) return [];
-  if (m.kind === "video") return [pictureTrack, ...audioTrackIds().slice(0, 2)];
-  return [pictureTrack];
+  const pictureTrack = lanes.includes(preferred) ? preferred : lanes[0] || null;
+  if (m.kind === "video") return [pictureTrack, ...targets("audio").slice(0, 2)];
+  return pictureTrack ? [pictureTrack] : [];
+}
+function toastNoSourceTarget() {
+  toast("No targeted track for this media — click a track name to target it (and unlock it)");
 }
 /** Tracks punched by Replace: placement lanes, plus any overlapping linked
  *  AV stems on A3+ (`audioChannel` set). Leaves V2/V3 and standalone music alone. */
 function sourceReplacePunchTracks(m, t0, t1) {
   const eps = 1e-6;
-  const tracks = new Set(sourceEditTracks(m).filter((id) => isTrackEnabled(id)));
+  const tracks = new Set(sourceEditTracks(m).filter(Boolean));
   if (m.kind === "video") {
     for (const c of project.clips) {
       if (c.kind !== "audio" || c.props?.audioChannel == null) continue;
       if (clipEnd(c) <= t0 + eps || c.start >= t1 - eps) continue;
-      if (isTrackEnabled(c.track)) tracks.add(c.track);
+      if (isEditTarget(c.track)) tracks.add(c.track);
     }
   }
   return [...tracks];
 }
-/** Place Source window clips at `at` (no undo / no timeline surgery). Disabled
-   lanes are skipped source-patching style: a disabled picture lane (V1) drops
-   the picture, disabled stem lanes (A1/A2) drop those stems. Returns the main
-   clip, or the first stem when only audio landed, or null. */
+/** Place Source window clips at `at` (no undo / no timeline surgery) on the
+   lanes sourceEditTracks picked. With no targeted video lane the picture is
+   dropped and only the stems land. Returns the main clip, or the first stem
+   when only audio landed, or null. */
 function placeSourceWindowClips(m, inn, duration, at) {
   const [pictureTrack, ...stemTracks] = sourceEditTracks(m);
   const name = m.name.replace(/\.[^.]+$/, "");
@@ -2125,7 +2309,7 @@ function placeSourceWindowClips(m, inn, duration, at) {
   const durR = +duration.toFixed(4);
   const lg = "lg_" + uid();
   let c = null;
-  if (isTrackEnabled(pictureTrack)) {
+  if (pictureTrack) {
     c = {
       id: "c_" + uid(), mediaId: m.id, kind: m.kind, track: pictureTrack,
       start, in: innR, duration: durR, name,
@@ -2137,7 +2321,6 @@ function placeSourceWindowClips(m, inn, duration, at) {
     if (c) { c.props.volume = 0; c.linkGroup = lg; }
     let firstStem = null;
     for (let ch = 0; ch < stemTracks.length; ch++) {
-      if (!isTrackEnabled(stemTracks[ch])) continue;
       const stem = {
         id: "c_" + uid(), mediaId: m.id, kind: "audio", track: stemTracks[ch],
         start, in: innR, duration: durR, name,
@@ -2155,7 +2338,8 @@ function placeSourceWindowClips(m, inn, duration, at) {
   return c;
 }
 /** Open a hole on one track over [t0, t1) — trim / split / delete overlaps.
- *  Sync lock: linked partners are punched too, even on disabled tracks.
+ *  Sync lock: linked partners are punched too, even on untargeted tracks.
+ *  Locked groups are left whole (the new clip overlaps them).
  *  Caller must relinkClips() afterwards — split pieces lose their linkGroup. */
 function punchTrackRange(trackId, t0, t1) {
   const eps = 1e-6;
@@ -2163,6 +2347,7 @@ function punchTrackRange(trackId, t0, t1) {
   const victims = withLinked(project.clips.filter((x) => x.track === trackId));
   for (const c of victims) {
     if (!project.clips.includes(c)) continue; // already removed this pass
+    if (isGroupLocked(c)) continue; // locked clips are never trimmed or removed
     const end = clipEnd(c);
     if (end <= t0 + eps || c.start >= t1 - eps) continue;
     // Fully inside the replace window
@@ -2233,21 +2418,18 @@ function punchTrackRange(trackId, t0, t1) {
   }
 }
 /** Premiere-style Insert: place Source In→Out at the timeline playhead and
- *  ripple later clips on enabled tracks. Splits straddling clips on those
+ *  ripple later clips on targeted tracks. Splits straddling clips on those
  *  tracks first (linked partners split too). */
 function insertSourceAtPlayhead() {
   const win = sourceInsertWindow();
   if (!win) { toastSourceWindowMissing(); return; }
   const { m, inn, duration } = win;
-  if (!sourceEditTracks(m).some((id) => isTrackEnabled(id))) {
-    toast("All target tracks are disabled — enable one first");
-    return;
-  }
+  if (!sourceEditTracks(m).some(Boolean)) { toastNoSourceTarget(); return; }
   if (state.playing) pause();
   if (state.source.playing) pauseSource();
   let at = Math.max(0, state.time);
 
-  const onTrack = (c) => isTrackEnabled(c.track);
+  const onTrack = (c) => isEditTarget(c.track);
   const eps = 1e-6;
 
   // Snap `at` to nearby cuts if it falls in the unsplittable MIN_DUR dead zone.
@@ -2263,9 +2445,9 @@ function insertSourceAtPlayhead() {
 
   pushUndo();
   // Open a seam at the playhead so the ripple can push the right halves.
-  const toSplit = withLinked(project.clips.filter((c) =>
+  const toSplit = withoutLocked(withLinked(project.clips.filter((c) =>
     onTrack(c) && at > c.start + MIN_DUR && at < clipEnd(c) - MIN_DUR
-  ));
+  )));
   if (toSplit.length) {
     const newLink = new Map();
     for (const c of toSplit) {
@@ -2274,8 +2456,9 @@ function insertSourceAtPlayhead() {
     }
     relinkSplitRights(toSplit, newLink);
   }
-  // Sync lock: linked partners ride along even on disabled tracks.
-  const movers = withLinked(project.clips.filter((c) => onTrack(c) && c.start >= at - eps));
+  // Sync lock: linked partners ride along even on untargeted tracks; locked
+  // groups stay put.
+  const movers = withoutLocked(withLinked(project.clips.filter((c) => onTrack(c) && c.start >= at - eps)));
   for (const c of movers) c.start = +(c.start + duration).toFixed(4);
 
   const c = placeSourceWindowClips(m, inn, duration, at);
@@ -2295,19 +2478,13 @@ function replaceSourceAtPlayhead() {
   if (state.source.fromClipId) {
     const existing = getClip(state.source.fromClipId);
     if (existing && existing.mediaId === win.m.id) {
-      if (!isTrackEnabled(existing.track)) {
-        toast("Clip is on a disabled track — enable it to replace");
-        return;
-      }
+      if (isGroupLocked(existing)) { toastLocked(); return; }
       applySourceWindowToClip(existing, win);
       return;
     }
   }
   const { m, inn, duration } = win;
-  if (!sourceEditTracks(m).some((id) => isTrackEnabled(id))) {
-    toast("All target tracks are disabled — enable one first");
-    return;
-  }
+  if (!sourceEditTracks(m).some(Boolean)) { toastNoSourceTarget(); return; }
   if (state.playing) pause();
   if (state.source.playing) pauseSource();
   const at = Math.max(0, state.time);
@@ -2327,6 +2504,7 @@ function replaceSourceAtPlayhead() {
 /** Apply Source In→Out to a timeline clip loaded into Source. Updates linked
  *  stems, then ripples later clips on those tracks when duration changes. */
 function applySourceWindowToClip(c, win) {
+  if (isGroupLocked(c)) { toastLocked(); return; }
   const { inn, duration: mediaWin } = win;
   const sp = clipSpeed(c);
   if (hasSpeedRamp(c)) {
@@ -2356,10 +2534,10 @@ function applySourceWindowToClip(c, win) {
   }
   if (Math.abs(delta) > 1e-6) {
     const eps = 1e-6;
-    // Sync lock: linked partners ride along even on disabled tracks.
-    const movers = withLinked(project.clips.filter((x) =>
-      !groupIds.has(x.id) && tracks.has(x.track) && isTrackEnabled(x.track) && x.start >= oldEnd - eps
-    ));
+    // Sync lock: linked partners ride along even on untargeted tracks.
+    const movers = withoutLocked(withLinked(project.clips.filter((x) =>
+      !groupIds.has(x.id) && tracks.has(x.track) && isEditTarget(x.track) && x.start >= oldEnd - eps
+    )));
     for (const x of movers) x.start = Math.max(0, +(x.start + delta).toFixed(4));
   }
   selectClip(c.id);
@@ -2388,7 +2566,7 @@ async function detectChannelCount(m) {
    also re-run after replaceClipMedia swaps the source. Drops linked clips
    for channels the (new) source no longer has, and warns only if a source
    has more channels than MAX_TRACKS_PER_KIND. */
-async function reconcileAudioChannels(videoClip, onlyEnabled = false) {
+async function reconcileAudioChannels(videoClip, onlyTargeted = false) {
   if (videoClip.kind !== "video" || !videoClip.linkGroup) return;
   const mediaId = videoClip.mediaId;
   const m = getMedia(mediaId);
@@ -2413,7 +2591,7 @@ async function reconcileAudioChannels(videoClip, onlyEnabled = false) {
   }
   for (let ch = 0; ch < wantCh; ch++) {
     if (have.some((c) => c.props?.audioChannel === ch)) continue;
-    if (onlyEnabled && !isTrackEnabled(ids[ch])) continue;
+    if (onlyTargeted && !isEditTarget(ids[ch])) continue;
     project.clips.push({
       id: "c_" + uid(), mediaId, kind: "audio", track: ids[ch],
       start: live.start, in: live.in, duration: live.duration, name: live.name,
@@ -2631,6 +2809,7 @@ function openMediaPicker(anchor, c) {
 }
 function closeMediaPicker() { if (runtime.mediaMenu) runtime.mediaMenu.close(); }
 function addTitle() {
+  if (isTrackLocked("V2")) { toast("V2 is locked — unlock it to add a title"); return; }
   pushUndo();
   const c = {
     id: "c_" + uid(), mediaId: null, kind: "text", track: "V2",
@@ -2644,6 +2823,7 @@ function addTitle() {
   selectClip(c.id); scheduleSave();
 }
 function addAdjust() {
+  if (isTrackLocked("V3")) { toast("V3 is locked — unlock it to add an adjustment layer"); return; }
   pushUndo();
   const c = {
     id: "c_" + uid(), mediaId: null, kind: "adjust", track: "V3",
@@ -2654,7 +2834,9 @@ function addAdjust() {
   selectClip(c.id); scheduleSave();
 }
 function deleteSelected() {
-  let doomed = withLinked(selectedClips());
+  const picked = withLinked(selectedClips());
+  const doomed = withoutLocked(picked);
+  if (doomed.length < picked.length) toastLocked(doomed.length > 0);
   if (!doomed.length) return;
   pushUndo();
   const ids = new Set(doomed.map((c) => c.id));
@@ -2663,9 +2845,11 @@ function deleteSelected() {
   setSelection([]);
   scheduleSave(); renderInspector();
 }
-/** Delete selection and pull later clips left on enabled tracks (per-track ripple). */
+/** Delete selection and pull later clips left on targeted tracks (per-track ripple). */
 function rippleDeleteSelected() {
-  let doomed = withLinked(selectedClips());
+  const picked = withLinked(selectedClips());
+  const doomed = withoutLocked(picked);
+  if (doomed.length < picked.length) toastLocked(doomed.length > 0);
   if (!doomed.length) return;
   const byTrack = new Map();
   for (const c of doomed) {
@@ -2677,10 +2861,10 @@ function rippleDeleteSelected() {
   for (const c of doomed) releaseClipEl(c.id);
   project.clips = project.clips.filter((x) => !ids.has(x.id));
   const eps = 1e-6;
-  // Merged removed ranges per enabled track.
+  // Merged removed ranges per targeted, unlocked track.
   const rangesByTrack = new Map();
   for (const [trackId, removed] of byTrack) {
-    if (!isTrackEnabled(trackId)) continue;
+    if (!isEditTarget(trackId)) continue;
     const ranges = removed.map((c) => [c.start, clipEnd(c)]).sort((a, b) => a[0] - b[0]);
     const merged = [];
     for (const [s, e] of ranges) {
@@ -2696,7 +2880,7 @@ function rippleDeleteSelected() {
     return d;
   };
   // Sync lock: a linked group shifts ONCE by the union of its member tracks'
-  // ranges (partners on disabled tracks ride along) — never once per track.
+  // ranges (partners on untargeted tracks ride along) — never once per track.
   // Unlinked clips use their own track's ranges.
   const grouped = new Map(), groups = [], solo = [];
   for (const c of project.clips) {
@@ -2708,10 +2892,12 @@ function rippleDeleteSelected() {
     for (const x of members) grouped.set(x.id, g);
   }
   for (const c of solo) {
+    if (isClipLocked(c)) continue; // locked clips stay put
     const d = shiftFor(rangesByTrack.get(c.track) || [], c.start);
     if (d > 0) c.start = Math.max(0, +(c.start - d).toFixed(4));
   }
   for (const g of groups) {
+    if (g.clips.some(isClipLocked)) continue; // a locked member pins the whole group
     const all = [];
     for (const tid of g.tracks) {
       const r = rangesByTrack.get(tid);
@@ -2752,20 +2938,21 @@ function gapAtPlayhead(trackId, t) {
   }
   return { gapStart, gapEnd };
 }
-/* Sync-safe close: every enabled track must have a gap at the playhead; close
-   the intersection of those gaps by shifting later clips on all enabled tracks. */
-function enabledTracks() {
-  return TRACKS.filter((tr) => isTrackEnabled(tr.id));
+/* Sync-safe close: every targeted track must have a gap at the playhead; close
+   the intersection of those gaps by shifting later clips on those tracks.
+   Locked tracks are not targets, and locked clips stay put. */
+function editTargetTracks() {
+  return TRACKS.filter((tr) => isEditTarget(tr.id));
 }
 function closeGapAtPlayhead() {
   const t = state.time;
-  const enabled = enabledTracks();
-  if (!enabled.length) { toast("No enabled tracks"); return; }
+  const enabled = editTargetTracks();
+  if (!enabled.length) { toast("No targeted tracks — click a track name to target it"); return; }
   let L = 0, R = Infinity;
   for (const tr of enabled) {
     const g = gapAtPlayhead(tr.id, t);
     if (!g) {
-      toast(`No gap on ${tr.id} — disable the track or move the playhead`);
+      toast(`No gap on ${tr.id} — untarget the track or move the playhead`);
       return;
     }
     L = Math.max(L, g.gapStart);
@@ -2776,8 +2963,8 @@ function closeGapAtPlayhead() {
     toast("Nothing to close at playhead");
     return;
   }
-  // Sync lock: linked partners ride along even on disabled tracks.
-  const movers = withLinked(project.clips.filter((c) => isTrackEnabled(c.track) && c.start >= R - GAP_EPS));
+  // Sync lock: linked partners ride along even on untargeted tracks.
+  const movers = withoutLocked(withLinked(project.clips.filter((c) => isEditTarget(c.track) && c.start >= R - GAP_EPS)));
   if (!movers.length) { toast("Nothing to close at playhead"); return; }
   pushUndo();
   for (const c of movers) c.start = Math.max(0, c.start - G);
@@ -2790,6 +2977,7 @@ function clearFocusedTransition() {
   if (!state.transFocus || !state.selId) return false;
   const c = getClip(state.selId);
   if (!c) return false;
+  if (isGroupLocked(c)) { toastLocked(); return true; }
   const key = state.transFocus === "in" ? "transitionIn" : "transitionOut";
   if (!c[key]) return false;
   pushUndo();
@@ -2842,13 +3030,13 @@ function gapSearchRange() {
   }
   return { t0: 0, t1: Math.max(projDur(), 0) };
 }
-/* Aligned gaps on enabled tracks inside [t0, t1] — same notion as closeGapAtPlayhead. */
+/* Aligned gaps on targeted tracks inside [t0, t1] — same notion as closeGapAtPlayhead. */
 function listAlignedGaps(t0, t1) {
-  const enabled = enabledTracks();
+  const enabled = editTargetTracks();
   if (!enabled.length || t1 - t0 <= GAP_EPS) return [];
   const edges = new Set([t0, t1]);
   for (const c of project.clips) {
-    if (!isTrackEnabled(c.track)) continue;
+    if (!isEditTarget(c.track)) continue;
     const s = c.start, e = clipEnd(c);
     if (s > t0 && s < t1) edges.add(s);
     if (e > t0 && e < t1) edges.add(e);
@@ -2905,12 +3093,12 @@ function goToNextGap() {
 }
 function splitAtPlayhead() {
   const t = state.time;
-  const onTrack = (c) => isTrackEnabled(c.track);
-  let targets = state.selIds.size ? selectedClips() : project.clips;
-  const straddlers = targets.filter((c) => t > c.start + MIN_DUR && t < clipEnd(c) - MIN_DUR);
-  targets = withLinked(straddlers.filter((c) => onTrack(c)));
+  // A selection splits wherever it sits; with none, the targeted tracks do.
+  const pool = state.selIds.size ? selectedClips() : project.clips.filter((c) => isEditTarget(c.track));
+  const straddlers = pool.filter((c) => t > c.start + MIN_DUR && t < clipEnd(c) - MIN_DUR);
+  const targets = withoutLocked(withLinked(straddlers));
   if (!targets.length) {
-    if (straddlers.length) toast("Clip is on a disabled track — enable it to split");
+    if (straddlers.length) toastLocked();
     return;
   }
   pushUndo();
@@ -2962,17 +3150,17 @@ function relinkSplitRights(targets, newLink) {
     }
   }
 }
-/* Split every enabled-track clip that crosses IN and/or OUT (no head/tail removal). */
+/* Split every targeted-track clip that crosses IN and/or OUT (no head/tail removal). */
 function splitAtWorkArea() {
   const cuts = [project.inPoint, project.outPoint].filter((t) => t != null);
   if (!cuts.length) {
     toast("Set an IN or OUT marker first (I / O)");
     return;
   }
-  const onTrack = (c) => typeof isTrackEnabled !== "function" || isTrackEnabled(c.track);
-  const targets = withLinked(project.clips.filter((c) =>
+  const onTrack = (c) => isEditTarget(c.track);
+  const targets = withoutLocked(withLinked(project.clips.filter((c) =>
     onTrack(c) && cuts.some((t) => t > c.start + MIN_DUR && t < clipEnd(c) - MIN_DUR)
-  ));
+  )));
   if (!targets.length) { toast("Nothing to split at IN/OUT"); return; }
   pushUndo();
   // Right-to-left so each successive cut still lands on the left-hand piece
@@ -2990,6 +3178,7 @@ function splitAtWorkArea() {
 function trimToPlayhead(side) {
   const c = getClip(state.selId);
   if (!c) return;
+  if (isGroupLocked(c)) { toastLocked(); return; }
   const t = state.time;
   if (t <= c.start && side === "in") return;
   pushUndo();
@@ -3003,14 +3192,14 @@ function trimToPlayhead(side) {
   scheduleSave(); renderInspector();
 }
 /* Split at IN/OUT and discard clip heads before IN and tails after OUT.
-   Targets enabled tracks; linked partners get the identical trim (sync lock). */
+   Targets targeted tracks; linked partners get the identical trim (sync lock). */
 function trimToWorkArea() {
   const inn = project.inPoint, out = project.outPoint;
   if (inn == null && out == null) {
     toast("Set an IN or OUT marker first (I / O)");
     return;
   }
-  const onTrack = (c) => typeof isTrackEnabled !== "function" || isTrackEnabled(c.track);
+  const onTrack = (c) => isEditTarget(c.track) && !isGroupLocked(c);
   const willChange = project.clips.some((c) => {
     if (!onTrack(c)) return false;
     const start = c.start, end = clipEnd(c);
@@ -3023,8 +3212,8 @@ function trimToWorkArea() {
 
   pushUndo();
   const doomed = new Set();
-  // Sync lock: linked partners ride along even on disabled tracks.
-  const targets = withLinked(project.clips.filter((c) => onTrack(c)));
+  // Sync lock: linked partners ride along even on untargeted tracks.
+  const targets = withoutLocked(withLinked(project.clips.filter((c) => onTrack(c))));
   for (const c of targets) {
     const start = c.start, end = clipEnd(c);
     let t0 = start, t1 = end;
@@ -3162,6 +3351,10 @@ function syncTrimIOButton() {
 }
 
 /* ═══════════════════════════ TIMELINE UI ═══════════════════════════ */
+const TRACK_LOCK_ICON =
+  `<svg class="track-ico" viewBox="0 0 16 16" aria-hidden="true">` +
+  `<path class="lock-shackle" fill="none" stroke="currentColor" stroke-width="1.6" d="M5 7V5a3 3 0 0 1 6 0v2"/>` +
+  `<rect x="3.5" y="7" width="9" height="7" rx="1.5" fill="currentColor"/></svg>`;
 function trackToggleIcon(kind) {
   if (kind === "audio") {
     // Speaker
@@ -3196,7 +3389,8 @@ function buildTrackDOM() {
       `<button type="button" class="track-toggle" aria-pressed="${on}" ` +
       `title="${on ? "Disable track" : "Enable track"}" style="color:${t.color}">` +
       `${trackToggleIcon(t.kind)}</button>` +
-      `<span class="track-id">${escapeHtml(t.id)}</span>` +
+      `<button type="button" class="track-id">${escapeHtml(t.id)}</button>` +
+      `<button type="button" class="track-lock" aria-pressed="false">${TRACK_LOCK_ICON}</button>` +
       `<button type="button" class="track-solo${solo ? " on" : ""}" aria-pressed="${solo}" ` +
       `title="${solo ? "Unsolo track" : "Solo track (mute all others)"}">S</button>`;
     h.querySelector(".track-toggle").addEventListener("click", (ev) => {
@@ -3208,6 +3402,16 @@ function buildTrackDOM() {
       ev.preventDefault();
       ev.stopPropagation();
       toggleTrackSolo(t.id);
+    });
+    h.querySelector(".track-id").addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleTrackTargeted(t.id);
+    });
+    h.querySelector(".track-lock").addEventListener("click", (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      toggleTrackLocked(t.id);
     });
     h.addEventListener("contextmenu", (ev) => {
       ev.preventDefault();
@@ -3221,6 +3425,7 @@ function buildTrackDOM() {
     row.style.height = t.h + "px";
     els.tracks.appendChild(row);
   }
+  syncAllTrackDisabledUI(); // lock / target state on the fresh headers
 }
 /* keep track headers vertically aligned with the (scrollable) track rows */
 els.timelineScroll.addEventListener("scroll", () => {
@@ -3309,7 +3514,9 @@ function rebuildClips() {
     const row = els.tracks.querySelector(`[data-track="${c.track}"]`);
     const div = document.createElement("div");
     div.className = `clip c-${c.kind}` +
-      (state.selIds.has(c.id) ? " selected" : "") + (c.id === state.selId ? " primary" : "");
+      (state.selIds.has(c.id) ? " selected" : "") + (c.id === state.selId ? " primary" : "") +
+      (isClipLocked(c) ? " locked" : "") + (c.disabled === true ? " disabled" : "") +
+      (c.unlinked === true ? " unlinked" : "");
     div.dataset.id = c.id;
     div.style.left = c.start * state.pps + "px";
     div.style.width = Math.max(8, c.duration * state.pps) + "px";
@@ -3551,6 +3758,15 @@ function trackAtEvent(e) {
   return null;
 }
 
+/* Right-click a clip: enable / lock / link menu. */
+els.tracksContent.addEventListener("contextmenu", (e) => {
+  const clipDiv = e.target.closest(".clip");
+  if (!clipDiv) return;
+  const c = getClip(clipDiv.dataset.id);
+  if (!c) return;
+  e.preventDefault();
+  showClipCtxMenu(e.clientX, e.clientY, c);
+});
 els.tracksContent.addEventListener("pointerdown", (e) => {
   if (e.button !== 0) return;
   // Clicking the timeline should release inspector text fields so shortcuts (z, s, …) work
@@ -3615,6 +3831,7 @@ els.tracksContent.addEventListener("dblclick", (e) => {
 const MIN_TRANS_DUR = 0.1;
 function startTransDurGesture(e, c, side) {
   e.preventDefault();
+  if (isGroupLocked(c)) { selectClip(c.id, { transFocus: side }); toastLocked(); return; }
   const key = side === "in" ? "transitionIn" : "transitionOut";
   const tr = c[key];
   if (!tr) return;
@@ -3663,6 +3880,7 @@ function startClipGesture(e, c, mode, collapseOnClick) {
   // moving a clip that belongs to a multi-selection drags the whole group;
   // AV-linked partners (video+audio from one file) always move together
   const group = withLinked(mode === "move" && state.selIds.has(c.id) ? selectedClips() : [c]);
+  if (group.some(isClipLocked)) { state.gesture = false; toastLocked(); return; }
   const groupOrig = new Map(group.map((x) => [x.id, {
     start: x.start, in: x.in, duration: x.duration,
     keyframes: x.keyframes ? JSON.parse(JSON.stringify(x.keyframes)) : undefined,
@@ -3698,7 +3916,7 @@ function startClipGesture(e, c, mode, collapseOnClick) {
       const tk = trackAtEvent(ev);
       if (tk) {
         const trk = TRACKS.find((t) => t.id === tk);
-        if (trk && (c.kind === "audio") === (trk.kind === "audio")) {
+        if (trk && (c.kind === "audio") === (trk.kind === "audio") && !isTrackLocked(tk)) {
           c.track = tk;
           routeClipGain(c);
         }
@@ -3844,11 +4062,11 @@ function keyframeTimelineTimes(clips) {
   out.sort((a, b) => a - b);
   return out;
 }
-/** Clip In/Out times used as edit points. Selection wins; otherwise enabled tracks. */
+/** Clip In/Out times used as edit points. Selection wins; otherwise targeted tracks. */
 function editPointTimes() {
   const clips = state.selIds.size
     ? selectedClips()
-    : project.clips.filter((c) => isTrackEnabled(c.track));
+    : project.clips.filter((c) => isTrackTargeted(c.track));
   const seen = new Set();
   const out = [];
   for (const c of clips) {
@@ -4162,6 +4380,23 @@ function pruneSelection() {
   syncBinSelectionFromTimeline();
 }
 const selectedClips = () => project.clips.filter((c) => state.selIds.has(c.id));
+/* Enable / lock / link toggles at the top of the inspector. They stay live
+   while the clip is locked — this is where you unlock it. */
+function clipStatusBar(c) {
+  const locked = isGroupLocked(c), disabled = c.disabled === true;
+  const linked = !!(c.linkGroup || c.linkedId);
+  const canLink = !linked && (c.kind === "video" || c.kind === "audio") && c.unlinked === true;
+  const b = (cmd, on, label, title, extra = "") =>
+    `<button type="button" class="clip-flag${on ? " on" : ""}" data-clip-cmd="${cmd}" aria-pressed="${on}" title="${title}"${extra}>${label}</button>`;
+  return `<div class="clip-flags">` +
+    b("disable", disabled, disabled ? "Disabled" : "Enabled",
+      disabled ? "Hidden from preview and export — click to enable (Shift+E)" : "Click to disable: hide from preview and export without deleting (Shift+E)") +
+    b("lock", locked, locked ? "Locked" : "Unlocked",
+      locked ? (c.locked === true ? "Click to unlock" : `Locked by track ${c.track} or a linked clip`) : "Click to lock — nothing can move or change it") +
+    ((linked || canLink) ? b("link", linked, linked ? "Linked" : "Unlinked",
+      linked ? "Video and audio move together — click to unlink (Ctrl/Cmd+L)" : "Click to relink with its audio (select both, Ctrl/Cmd+L)") : "") +
+    `</div>`;
+}
 function renderInspector(lite) {
   const c = getClip(state.selId);
   if (!c) {
@@ -4216,7 +4451,7 @@ function renderInspector(lite) {
   };
   let html = (state.selIds.size > 1
     ? `<div class="insp-multi">${state.selIds.size} clips selected — drag moves them together, Del deletes all. Fields below edit the primary (white-outlined) clip.</div>`
-    : "") + `<div class="insp-section"><h3>Clip — ${c.kind}</h3>
+    : "") + clipStatusBar(c) + `<div class="insp-section"><h3>Clip — ${c.kind}</h3>
     ${row("Name", `<input type="text" data-k="name" value="${c.name.replace(/"/g, "&quot;")}">`)}
     ${c.mediaId ? row("Source", `<button type="button" class="btn tiny style-picker-btn" data-media-open title="Replace this clip's media — keeps position, trim, keyframes and effects">${escapeHtml((getMedia(c.mediaId) || {}).name || "Missing media")} ▾</button>`) : ""}
     ${row("Start (s)", `<input type="number" data-k="start" step="0.01" value="${c.start.toFixed(2)}">`)}
@@ -4363,6 +4598,7 @@ function renderInspector(lite) {
       const local = e.shiftKey && !all;
       if (!all && !local) return;
       e.preventDefault();
+      if (isGroupLocked(c)) { toastLocked(); return; }
       applyInspectorReset(lab.dataset.reset.split(",").map((s) => s.trim()).filter(Boolean), all);
     });
   });
@@ -4469,6 +4705,24 @@ function renderInspector(lite) {
     const row = els.inspector.querySelector(`[data-k="${k}"]`)?.closest(".insp-row");
     row?.scrollIntoView({ block: "nearest", behavior: "smooth" });
   }
+  els.inspector.querySelectorAll("[data-clip-cmd]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const cmd = btn.dataset.clipCmd;
+      if (!state.selIds.has(c.id)) selectClip(c.id);
+      if (cmd === "disable") toggleClipsDisabled();
+      else if (cmd === "lock") toggleClipsLocked();
+      else if (cmd === "link") {
+        // Relinking from the inspector pairs the clip with its aligned partners.
+        if (!c.linkGroup && !c.linkedId) {
+          const near = (a, b) => Math.abs(a - b) < 1e-3;
+          const mates = project.clips.filter((x) => x.mediaId === c.mediaId &&
+            near(x.start, c.start) && near(x.in, c.in) && near(x.duration, c.duration));
+          setSelection(mates.map((x) => x.id));
+        }
+        toggleLinkSelected();
+      }
+    });
+  });
   els.inspector.querySelectorAll("[data-kfgraph]").forEach((lab) => {
     lab.addEventListener("click", (e) => {
       if (e.ctrlKey || e.metaKey || e.shiftKey) return; // modifiers reserved for prop reset
@@ -4486,6 +4740,7 @@ els.inspector.addEventListener("pointerdown", (e) => {
   const input = e.target.closest?.("input[type=range][data-k]");
   if (!input || !els.inspector.contains(input)) return;
   e.preventDefault();
+  if (isGroupLocked(getClip(state.selId))) { toastLocked(); return; }
   const k = input.dataset.k;
   if (!k || !Object.hasOwn(DEFAULT_PROPS, k)) return;
   applyInspectorReset([k], true);
@@ -4502,14 +4757,18 @@ els.inspector.addEventListener("contextmenu", (e) => {
    full renderInspector rebuild. */
 function syncInspectorOffClip(c) {
   const off = !playheadOverClip(c);
+  const locked = isGroupLocked(c); // a locked clip is read-only
   const active = document.activeElement;
+  els.inspector.classList.toggle("locked", locked);
   for (const input of els.inspector.querySelectorAll("[data-k]")) {
     const k = input.dataset.k;
-    if (!ANIMATABLE.includes(k) || input === active) continue; // don't yank focus mid-edit
-    input.disabled = off && !!(c.keyframes?.[k]?.length);
+    if (input === active) continue; // don't yank focus mid-edit
+    input.disabled = locked || (ANIMATABLE.includes(k) && off && !!(c.keyframes?.[k]?.length));
   }
+  for (const btn of els.inspector.querySelectorAll("[data-kfclear], [data-action], [data-style-open], [data-media-open]"))
+    btn.disabled = locked;
   for (const btn of els.inspector.querySelectorAll("[data-kf]")) {
-    btn.disabled = off;
+    btn.disabled = off || locked;
     btn.title = off ? "Move the playhead over the clip to add or remove keyframes"
       : btn.classList.contains("on") ? "Remove keyframe at playhead" : "Set keyframe at playhead";
   }
@@ -6156,7 +6415,7 @@ function refreshAudioHold() {
 
   for (const c of project.clips) {
     if (c.kind !== "audio" && c.kind !== "video") continue;
-    if (!isTrackEnabled(c.track) || !activeAt(c, t)) continue;
+    if (!clipRenders(c) || !activeAt(c, t)) continue;
     const m = getMedia(c.mediaId);
     if (!m || (m.kind !== "audio" && m.kind !== "video")) continue;
     const p = evalProps(c, t);
@@ -6242,7 +6501,7 @@ function syncMedia() {
   for (const c of project.clips) {
     if (c.kind === "text" || c.kind === "image" || c.kind === "svg" || c.kind === "adjust") continue;
     const el = getClipEl(c); if (!el) continue;
-    const enabled = isTrackEnabled(c.track);
+    const enabled = clipRenders(c);
     const mt = mediaTimeAt(c, t);
     if (state.playing && enabled && activeAt(c, t)) {
       // Only the active-under-playhead branch needs the full evaluated props
@@ -6289,7 +6548,7 @@ function seekMediaWhilePaused() {
   const t = state.time;
   for (const c of project.clips) {
     if (c.kind !== "video") continue;
-    if (!isTrackEnabled(c.track)) continue;
+    if (!clipRenders(c)) continue;
     if (!activeAt(c, t)) continue;
     const el = getClipEl(c); if (!el) continue;
     const mt = mediaTimeAt(c, t);
@@ -6727,7 +6986,7 @@ function buildFilter(p) {
   if (p.invert) parts.push(`invert(${p.invert}%)`);
   return parts.length ? parts.join(" ") : "none";
 }
-/** Active clips across enabled video tracks at time `t`, in compositing order
+/** Active, enabled clips across enabled video tracks at time `t`, in compositing order
  * (bottom-to-top: V1 first, then V2, V3), each track's clips sorted by
  * `start`. Shared by drawFrame (renders it as-is) and pickClipAt (hit-tests
  * it top-down, filtered to visual clips only). */
@@ -6736,7 +6995,7 @@ function visibleClipsAt(t) {
   const videoTracks = TRACKS.filter((tr) => tr.kind === "video" && isTrackEnabled(tr.id)).reverse();
   for (const tr of videoTracks) {
     out.push(...project.clips
-      .filter((c) => c.track === tr.id && activeAt(c, t))
+      .filter((c) => c.track === tr.id && c.disabled !== true && activeAt(c, t))
       .sort((a, b) => a.start - b.start));
   }
   return out;
@@ -6790,7 +7049,7 @@ function overlayHandles(b, W, H) {
 }
 function drawSelectionOverlay(W, H, t) {
   const c = getClip(state.selId);
-  if (!isVisualClip(c) || !activeAt(c, t) || !isTrackEnabled(c.track)) return;
+  if (!isVisualClip(c) || !activeAt(c, t) || !clipRenders(c)) return;
   const b = clipBounds(c, evalProps(c, t), W, H);
   const lw = Math.max(2, W / 640);
   const hd = overlayHandles(b, W, H), hs = hd.hs;
@@ -6886,6 +7145,7 @@ els.preview.addEventListener("pointerdown", (e) => {
     const ep = propsAtPlayhead(hit);
     canvasDrag = { mode: "move", id: hit.id, startX: +ep.x || 0, startY: +ep.y || 0, startPt: pt };
   }
+  if (isGroupLocked(getClip(canvasDrag.id))) { canvasDrag = null; toastLocked(); return; }
   canvasDidMove = false;
   if (canvasDrag.mode === "move") els.preview.style.cursor = "move";
   else if (canvasDrag.mode === "rotate") els.preview.style.cursor = ROTATE_CURSOR;
@@ -8087,7 +8347,7 @@ function waitMediaEl(el, ms = 2500) {
 async function armExportCors() {
   const jobs = [];
   for (const c of project.clips) {
-    if (c.kind !== "video" || !isTrackEnabled(c.track)) continue;
+    if (c.kind !== "video" || !clipRenders(c)) continue;
     const m = getMedia(c.mediaId);
     if (!m || !isCrossOriginSrc(m.src)) continue;
     const el = getClipEl(c);
@@ -8110,7 +8370,7 @@ async function armExportCors() {
   await Promise.all(jobs);
   const missing = [];
   for (const c of project.clips) {
-    if (c.kind !== "video" || !isTrackEnabled(c.track)) continue;
+    if (c.kind !== "video" || !clipRenders(c)) continue;
     const m = getMedia(c.mediaId);
     if (!m || !isCrossOriginSrc(m.src)) continue;
     const el = runtime.clipEls.get(c.id);
@@ -8401,7 +8661,7 @@ function playAdvanceVideo(el, mt, eps, rate, { keepPlaying } = {}) {
 const EXPORT_PREFETCH_S = 1.25;
 function prefetchExportVideos(t) {
   for (const c of project.clips) {
-    if (c.kind !== "video" || !isTrackEnabled(c.track)) continue;
+    if (c.kind !== "video" || !clipRenders(c)) continue;
     if (activeAt(c, t)) continue;
     if (c.start > t + EXPORT_PREFETCH_S || clipEnd(c) <= t) continue;
     const el = getClipEl(c);
@@ -8427,7 +8687,7 @@ async function seekVideosTo(t, { queueBusy } = {}) {
   const restoreGain = [];
   for (const c of project.clips) {
     if (c.kind !== "video") continue;
-    if (!isTrackEnabled(c.track)) continue;
+    if (!clipRenders(c)) continue;
     const el = getClipEl(c); if (!el) continue;
     if (!activeAt(c, t)) {
       if (!el.paused) el.pause();
@@ -8506,7 +8766,7 @@ async function renderAudioMix(t0, t1) {
   const jobs = [];
   for (const c of project.clips) {
     if (c.kind !== "audio" && c.kind !== "video") continue;
-    if (!isTrackEnabled(c.track)) continue;
+    if (!clipRenders(c)) continue;
     const m = getMedia(c.mediaId); if (!m) continue;
     jobs.push(getAudioBuffer(m).then((buf) => ({ c, buf })).catch(() => null));
   }
@@ -8567,7 +8827,7 @@ async function renderAudioMix(t0, t1) {
    this exact time, and refresh AI person masks synchronously. */
 async function prepareFrameAssets(t) {
   for (const c of project.clips) {
-    if (!activeAt(c, t) || !isTrackEnabled(c.track)) continue;
+    if (!activeAt(c, t) || !clipRenders(c)) continue;
     if (c.kind === "svg") await prepareSvgFrame(c, t);
     if (c.props?.bgRemove && (c.kind === "video" || c.kind === "image")) {
       const el = c.kind === "video" ? getClipEl(c) : runtime.mediaAux.get(c.mediaId)?.img;
@@ -9582,6 +9842,14 @@ window.addEventListener("keydown", (e) => {
     } else {
       if (!state.playing) play(); else stepPreviewRate(-1); // tap again = slower
     }
+  }
+  else if ((k === "e" || k === "E") && e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    e.preventDefault();
+    toggleClipsDisabled();
+  }
+  else if ((k === "l" || k === "L") && (e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey) {
+    e.preventDefault(); // Ctrl/Cmd+L would otherwise focus the address bar
+    toggleLinkSelected();
   }
   else if (k === "s" || k === "S") splitAtPlayhead();
   else if (k === "," && !e.ctrlKey && !e.metaKey && !e.altKey) {

@@ -118,6 +118,70 @@ test("patch ops reject edits that would corrupt the timeline", async (t) => {
   assert.deepEqual(readProject(dir), seedProject(), "rejected patches must not write");
 });
 
+test("patch refuses to change locked clips and tracks unless forced", async (t) => {
+  const project = seedProject({
+    lockedTracks: ["A3"],
+    media: [
+      { id: "m_a", name: "a.mp4", kind: "video", src: "/media/a.mp4", duration: 10 },
+      { id: "m_m", name: "bed.mp3", kind: "audio", src: "/media/bed.mp3", duration: 30 },
+    ],
+    clips: [
+      { id: "c_a", mediaId: "m_a", kind: "video", track: "V1", start: 0, in: 0, duration: 5, locked: true },
+      { id: "c_s", mediaId: "m_a", kind: "audio", track: "A1", start: 5, in: 5, duration: 5, linkGroup: "g" },
+      { id: "c_p", mediaId: "m_a", kind: "video", track: "V1", start: 5, in: 5, duration: 5, linkGroup: "g", locked: true },
+      { id: "c_m", mediaId: "m_m", kind: "audio", track: "A3", start: 0, in: 0, duration: 10 },
+    ],
+  });
+  const { dir, mcp } = await boot(t, project);
+  const refused = [
+    [{ op: "updateClip", id: "c_a", set: { start: 2 } }, /clip c_a is locked/],
+    [{ op: "removeClip", id: "c_a" }, /clip c_a is locked/],
+    [{ op: "updateClip", id: "c_m", set: { start: 1 } }, /locked track A3/],
+    [{ op: "updateClip", id: "c_s", set: { start: 1 } }, /linked to c_p/],
+    [{ op: "addClip", clip: { mediaId: "m_m", kind: "audio", track: "A3", start: 12, duration: 2 } }, /track A3 is locked/],
+  ];
+  for (const [op, expected] of refused) {
+    const { text, isError } = await mcp.callTool("fablecut_patch_project", { ops: [op] });
+    assert.ok(isError, `${op.op} on locked material should be refused, got: ${text}`);
+    assert.match(text, expected);
+    assert.match(text, /force:true/, "the error must say how to override");
+  }
+  assert.deepEqual(readProject(dir), project, "refused patches must not write");
+
+  // Moving an unlocked clip onto a locked track is refused too.
+  await mcp.callTool("fablecut_patch_project", { ops: [{ op: "setProject", set: { lockedTracks: ["A3", "V2"] } }] });
+  const move = await mcp.callTool("fablecut_patch_project", {
+    ops: [{ op: "addClip", clip: { id: "c_t", kind: "text", track: "V3", start: 0, duration: 1 } },
+      { op: "updateClip", id: "c_t", set: { track: "V2" } }],
+  });
+  assert.ok(move.isError);
+  assert.match(move.text, /track V2 is locked/);
+
+  // force:true overrides, and toggling `locked` itself is always allowed.
+  const forced = await mcp.callTool("fablecut_patch_project", {
+    ops: [
+      { op: "updateClip", id: "c_m", set: { start: 1 }, force: true },
+      { op: "updateClip", id: "c_a", set: { locked: null } },
+      { op: "updateClip", id: "c_a", set: { start: 3 } },
+    ],
+  });
+  assert.equal(forced.isError, false, forced.text);
+  const doc = readProject(dir);
+  assert.equal(doc.clips.find((c) => c.id === "c_m").start, 1);
+  assert.equal(doc.clips.find((c) => c.id === "c_a").start, 3);
+  assert.ok(!("locked" in doc.clips.find((c) => c.id === "c_a")), "set:{locked:null} unlocks");
+});
+
+test("compact view shows locked tracks and clip flags", async (t) => {
+  const project = seedProject({ lockedTracks: ["A3"], untargetedTracks: ["V2"] });
+  Object.assign(project.clips[0], { locked: true, disabled: true, unlinked: true });
+  const { mcp } = await boot(t, project);
+  const { text } = await mcp.callTool("fablecut_get_project", { compact: true });
+  assert.match(text, /lockedTracks:\[A3\]/);
+  assert.match(text, /untargetedTracks:\[V2\]/);
+  assert.match(text, /c_a V1 .*\[locked\] \[disabled\] \[unlinked\]/);
+});
+
 test("text and adjust clips need no media, unlike footage clips", async (t) => {
   const { dir, mcp } = await boot(t);
   const { isError, text } = await mcp.callTool("fablecut_patch_project", {

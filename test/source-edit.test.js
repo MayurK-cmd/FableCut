@@ -1,89 +1,12 @@
 /* Unit tests for the 3-point-editing core in app.js: range punching
    (punchTrackRange), target-lane resolution (sourceEditTracks /
    placeSourceWindowClips), sync-locked ripple delete (rippleDeleteSelected)
-   and the disabled-track guard on Replace.
-
-   app.js is a browser script with no exports, so — like keyframes.test.js —
-   the real functions are sliced out of the source by name markers and run
-   against a small stubbed world (project, TRACKS, disabled tracks). */
+   and the lock guard on Replace. The real functions run in the stubbed
+   timeline from timeline-sandbox.js. */
 "use strict";
 const assert = require("node:assert/strict");
 const test = require("node:test");
-const path = require("node:path");
-const fs = require("node:fs");
-const { ROOT } = require("./helpers");
-
-const SRC = fs.readFileSync(path.join(ROOT, "app.js"), "utf8");
-
-function slice(startMarker, endMarker) {
-  const a = SRC.indexOf(startMarker);
-  const b = SRC.indexOf(endMarker, a);
-  assert.ok(a >= 0, `start marker not found: ${startMarker}`);
-  assert.ok(b > a, `end marker not found after it: ${endMarker}`);
-  return SRC.slice(a, b);
-}
-
-const MIN_DUR = +/const MIN_DUR = ([\d.]+);/.exec(SRC)[1];
-
-const CODE = [
-  slice("function audioTrackIds(", "function nextTrackId("),
-  slice("function defaultTrackFor(", "function syncLinkedTiming("),
-  slice("function sourceEditTracks(", "/** Place Source window clips"),
-  slice("function placeSourceWindowClips(", "/** Open a hole on one track"),
-  slice("function punchTrackRange(", "/** Premiere-style Insert"),
-  slice("function replaceSourceAtPlayhead(", "/** Apply Source In→Out to a timeline clip"),
-  slice("function rippleDeleteSelected(", "/* Gap under playhead"),
-  slice("function splitClipAt(", "/* After splitting a set of clips"),
-  slice("function shiftKF(", "/* ═════════════════ SVG CLIPS"),
-].join("\n");
-
-const DEFAULT_TRACKS = ["V3", "V2", "V1", "A1", "A2", "A3"];
-
-/* A fresh world per test. `trackIds` lists the live lanes; `disabled` the
-   switched-off ones. Clips are plain objects, as in project.json. */
-function world({ trackIds = DEFAULT_TRACKS, disabled = [], clips = [], selected = [] } = {}) {
-  const project = { clips };
-  const TRACKS = trackIds.map((id) => ({ id, kind: id[0] === "A" ? "audio" : "video" }));
-  const state = {
-    disabledTracks: new Set(disabled), time: 0, playing: false, dirtyTimeline: false,
-    source: { mediaId: null, fromClipId: null, playing: false },
-  };
-  const calls = { toast: [], applyWindow: 0, undo: 0 };
-  let n = 0;
-  const env = {
-    project, TRACKS, state, MIN_DUR,
-    DEFAULT_PROPS: { volume: 1 },
-    uid: () => "u" + (++n),
-    clamp: (v, a, b) => Math.min(b, Math.max(a, v)),
-    clipEnd: (c) => c.start + c.duration,
-    // No speed ramps in these fixtures: linear media time.
-    mediaTimeAt: (c, t) => c.in + Math.min(c.duration, Math.max(0, t - c.start)) * (c.props?.speed || 1),
-    getClip: (id) => project.clips.find((c) => c.id === id) || null,
-    isTrackEnabled: (id) => !state.disabledTracks.has(id),
-    selectedClips: () => project.clips.filter((c) => selected.includes(c.id)),
-    releaseClipEl() {}, scheduleSave() {}, renderInspector() {}, setSelection() {},
-    ensureWave() {}, reconcileAudioChannels() {}, pause() {}, pauseSource() {},
-    relinkClips() {}, pruneSelection() {}, selectClip() {}, ensurePlayheadVisible() {},
-    toastSourceWindowMissing() {},
-    defaultPanForChannel: (ch) => (ch === 0 ? -1 : ch === 1 ? 1 : 0),
-    pushUndo: () => { calls.undo++; },
-    toast: (msg) => { calls.toast.push(msg); },
-    applySourceWindowToClip: () => { calls.applyWindow++; },
-    sourceInsertWindow: () => null, // overridden per test
-  };
-  const names = Object.keys(env);
-  const fns = new Function(...names, `${CODE}\nreturn {
-    sourceEditTracks, placeSourceWindowClips, punchTrackRange,
-    replaceSourceAtPlayhead, rippleDeleteSelected,
-    setWindow: (fn) => { sourceInsertWindow = fn; },
-  };`)(...names.map((k) => env[k]));
-  return { ...fns, project, state, calls };
-}
-
-const clip = (id, track, start, duration, extra = {}) => ({
-  id, track, start, duration, in: 0, kind: track[0] === "A" ? "audio" : "video",
-  mediaId: "m1", props: {}, ...extra,
-});
+const { world, clip } = require("./timeline-sandbox");
 
 /* ── Keyframe rebase on Insert / Replace ─────────────────────────────────── */
 
@@ -123,18 +46,25 @@ test("punching the middle of a clip keeps head and tail keyframes in place", () 
   assert.deepEqual(pieces[1].keyframes, { opacity: [{ t: 3, v: 1 }] }, "timeline 8 → local 3");
 });
 
-test("punching also trims linked partners on a disabled track (sync lock)", () => {
+test("punching also trims linked partners on an untargeted track (sync lock)", () => {
   const v = clip("v", "V1", 2, 4, { linkGroup: "g" });
   const a = clip("a", "A2", 2, 4, { linkGroup: "g" });
-  const w = world({ clips: [v, a], disabled: ["A2"] });
+  const w = world({ clips: [v, a], untargeted: ["A2"] });
   w.punchTrackRange("V1", 1, 4);
   assert.deepEqual([v.start, v.duration], [4, 2]);
   assert.deepEqual([a.start, a.duration], [4, 2], "the stem must stay in sync with its picture");
 });
 
-/* ── Target lanes that don't exist ───────────────────────────────────────── */
+test("punching leaves a locked clip whole", () => {
+  const c = clip("c1", "V1", 2, 4, { locked: true });
+  const w = world({ clips: [c] });
+  w.punchTrackRange("V1", 1, 4);
+  assert.deepEqual([c.start, c.duration], [2, 4]);
+});
 
-test("sourceEditTracks uses the default lanes when they exist", () => {
+/* ── Target lanes ────────────────────────────────────────────────────────── */
+
+test("sourceEditTracks uses the default lanes when they are targeted", () => {
   const w = world();
   assert.deepEqual(w.sourceEditTracks({ kind: "video" }), ["V1", "A1", "A2"]);
   assert.deepEqual(w.sourceEditTracks({ kind: "audio" }), ["A1"]);
@@ -163,6 +93,24 @@ test("sourceEditTracks returns an empty list when no compatible lane exists", ()
   assert.deepEqual(w.sourceEditTracks({ kind: "audio" }), []);
 });
 
+test("sourceEditTracks follows targeting and skips locked lanes", () => {
+  const w = world({ untargeted: ["V1"], locked: ["A1"] });
+  assert.deepEqual(w.sourceEditTracks({ kind: "video" }), ["V2", "A2", "A3"]);
+  assert.deepEqual(w.sourceEditTracks({ kind: "audio" }), ["A2"]);
+});
+
+test("sourceEditTracks drops the picture when no video lane is a target", () => {
+  const w = world({ untargeted: ["V1", "V2", "V3"] });
+  assert.deepEqual(w.sourceEditTracks({ kind: "video" }), [null, "A1", "A2"]);
+  assert.deepEqual(w.sourceEditTracks({ kind: "image" }), []);
+});
+
+test("an output-disabled lane still receives Source placement", () => {
+  // The eye toggle only hides a lane from preview / export now.
+  const w = world({ disabled: ["V1"] });
+  assert.deepEqual(w.sourceEditTracks({ kind: "video" }), ["V1", "A1", "A2"]);
+});
+
 test("placed Source clips never land on a lane that doesn't exist", () => {
   const w = world({ trackIds: ["V2", "A2", "A3"] });
   w.placeSourceWindowClips({ id: "m1", kind: "video", name: "shot.mp4" }, 1, 2, 5);
@@ -175,8 +123,8 @@ test("placed Source clips never land on a lane that doesn't exist", () => {
 
 /* ── Ripple delete ───────────────────────────────────────────────────────── */
 
-test("ripple delete shifts a linked A/V group once, partners on a disabled track included", () => {
-  // G1 = [3,5) on V1/A1/A2, G2 = [5,9) on the same lanes. A2 is disabled.
+test("ripple delete shifts a linked A/V group once, partners on an untargeted track included", () => {
+  // G1 = [3,5) on V1/A1/A2, G2 = [5,9) on the same lanes. A2 is untargeted.
   // Deleting G1 must pull every G2 member back by exactly 2 (a per-track
   // pass would shift it twice, to 1).
   const clips = [
@@ -187,42 +135,41 @@ test("ripple delete shifts a linked A/V group once, partners on a disabled track
     clip("b1", "A1", 5, 4, { linkGroup: "g2" }),
     clip("b2", "A2", 5, 4, { linkGroup: "g2" }),
   ];
-  const w = world({ clips, disabled: ["A2"], selected: ["v1"] });
+  const w = world({ clips, untargeted: ["A2"], selected: ["v1"] });
   w.rippleDeleteSelected();
   assert.deepEqual(w.project.clips.map((c) => c.id).sort(), ["b1", "b2", "v2"]);
   for (const c of w.project.clips) assert.equal(c.start, 3, `${c.id} should start at 3`);
 });
 
-test("ripple delete leaves unlinked clips on a disabled track where they are", () => {
+test("ripple delete leaves unlinked clips on an untargeted track where they are", () => {
   const clips = [
     clip("v1", "V1", 0, 2),
     clip("v2", "V1", 2, 2),
     clip("music", "A2", 4, 3),
   ];
-  const w = world({ clips, disabled: ["A2"], selected: ["v1"] });
+  const w = world({ clips, untargeted: ["A2"], selected: ["v1"] });
   w.rippleDeleteSelected();
-  const byId = Object.fromEntries(w.project.clips.map((c) => [c.id, c]));
-  assert.equal(byId.v2.start, 0, "same-track clip closes the gap");
-  assert.equal(byId.music.start, 4, "a disabled lane is not rippled");
+  assert.equal(w.byId("v2").start, 0, "same-track clip closes the gap");
+  assert.equal(w.byId("music").start, 4, "an untargeted lane is not rippled");
 });
 
 /* ── Replace guard ───────────────────────────────────────────────────────── */
 
-test("Replace refuses to retarget a timeline clip on a disabled track", () => {
-  const c = clip("c1", "V1", 0, 4);
-  const w = world({ clips: [c], disabled: ["V1"] });
+test("Replace refuses to retarget a locked timeline clip", () => {
+  const c = clip("c1", "V1", 0, 4, { locked: true });
+  const w = world({ clips: [c] });
   w.state.source.mediaId = "m1";
   w.state.source.fromClipId = "c1";
   w.setWindow(() => ({ m: { id: "m1", kind: "video" }, inn: 0, duration: 2 }));
   w.replaceSourceAtPlayhead();
   assert.equal(w.calls.applyWindow, 0, "the clip must not be edited");
   assert.equal(w.calls.undo, 0, "no undo step for a refused edit");
-  assert.match(w.calls.toast[0] || "", /disabled track/);
+  assert.match(w.calls.toast[0] || "", /Locked/);
 });
 
-test("Replace retargets the loaded timeline clip when its track is enabled", () => {
+test("Replace retargets the loaded clip even on an output-disabled track", () => {
   const c = clip("c1", "V1", 0, 4);
-  const w = world({ clips: [c] });
+  const w = world({ clips: [c], disabled: ["V1"] });
   w.state.source.mediaId = "m1";
   w.state.source.fromClipId = "c1";
   w.setWindow(() => ({ m: { id: "m1", kind: "video" }, inn: 0, duration: 2 }));

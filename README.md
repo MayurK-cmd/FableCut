@@ -58,6 +58,20 @@ same time.
     has clips, or if it would leave you with zero video/audio tracks)
   - Track header **S** solos that lane (mutes all others); click again to restore
     the previous mute state. Using the mute toggle while soloed exits solo.
+  - **Track targeting** — click a track's name to target / untarget it (lit =
+    targeted). Split, insert, ripple, close gap and jump-to-cut touch targeted
+    tracks only; the eye / speaker toggle is output-only (hide from preview and
+    export) and no longer blocks edits. A selected clip is edited wherever it sits.
+  - **Track lock** — the padlock in the track header. Nothing on a locked track
+    can be moved, trimmed, split or deleted, and ripples leave it in place while
+    the other tracks shift — lock the music bed and re-cut the picture freely.
+- **Clip lock, disable and unlink** — right-click a clip (or use the toggles at
+  the top of the inspector): **Lock** pins it like a locked track; **Disable**
+  (<kbd>⇧E</kbd>) keeps it on the timeline but hides it from preview and export;
+  **Unlink** (<kbd>Ctrl/Cmd+L</kbd>) splits a video from its audio so they move
+  separately, and **Link** re-joins them once they line up again. Agents see
+  locks too: `fablecut_patch_project` refuses to edit locked clips unless the
+  op says `force: true`.
   - Dropping a video with more audio channels than A-tracks **adds the missing
     lanes automatically** (up to 16) and toasts how many were added; each channel
     becomes a linked stem on its own A-track
@@ -98,9 +112,9 @@ same time.
 - Resizable workspace: drag the divider between monitor and timeline (double-click resets), plus S/M/L timeline track-density presets (S hides thumbnails for compact tracks)
 - **Zoom to selection** (<kbd>⇧Z</kbd>) frames all selected clips, not just one
 - **IN/OUT work area** — set markers with <kbd>i</kbd> and <kbd>o</kbd> (<kbd>⇧I</kbd> / <kbd>⇧O</kbd> to clear). The Program Monitor shows playhead as `current / sequence duration`; when markers are set, IN, marked duration, and OUT stack on the right. **Export** has a Range dropdown (Entire timeline / IN–OUT; defaults to IN–OUT when markers exist) so you can keep markers for split/trim and still export the full sequence. Enabling **Limit** constrains playback to the marked range and maps <kbd>Home</kbd> / <kbd>End</kbd> to the IN and OUT positions rather than the full timeline. <kbd>t</kbd> splits clips at the markers; <kbd>⇧t</kbd> trims clips to the work (between marker in and marker out) area.
-- **Find & close gaps** — a gap is a stretch where every enabled track is empty (black frames). <kbd>g</kbd> jumps the playhead to the next shared gap (wraps; respects IN/OUT when both are set). <kbd>⇧G</kbd> closes the gap under the playhead by pulling later clips left on all enabled tracks.
-- **Jump to cut** — <kbd>↑</kbd> / <kbd>↓</kbd> move the playhead to the previous / next edit (clip In or Out). With a clip selected, the first taps land on that clip’s start then end (Premiere-style); with no selection they walk cuts on enabled tracks. In the Source monitor they jump among 0, In, Out, and duration. Left/right still step frames; Home/End still go to the sequence (or IN/OUT with Limit).
-- **Ripple delete** — the timeline **Ripple delete** button (or <kbd>⇧Del</kbd>) removes the selection and pulls later clips left on each **enabled** track to close the gap; plain <kbd>Del</kbd> still lifts (leaves a gap). Linked AV partners always move together, even on disabled tracks (sync lock).
+- **Find & close gaps** — a gap is a stretch where every targeted track is empty (black frames). <kbd>g</kbd> jumps the playhead to the next shared gap (wraps; respects IN/OUT when both are set). <kbd>⇧G</kbd> closes the gap under the playhead by pulling later clips left on all targeted tracks (locked clips stay put).
+- **Jump to cut** — <kbd>↑</kbd> / <kbd>↓</kbd> move the playhead to the previous / next edit (clip In or Out). With a clip selected, the first taps land on that clip’s start then end (Premiere-style); with no selection they walk cuts on targeted tracks. In the Source monitor they jump among 0, In, Out, and duration. Left/right still step frames; Home/End still go to the sequence (or IN/OUT with Limit).
+- **Ripple delete** — the timeline **Ripple delete** button (or <kbd>⇧Del</kbd>) removes the selection and pulls later clips left on each **targeted** track to close the gap; plain <kbd>Del</kbd> still lifts (leaves a gap). Linked AV partners always move together, even on untargeted tracks (sync lock); locked clips are never deleted or moved.
 - **Reset a property** — <kbd>Ctrl/Cmd+click</kbd> an inspector **label** or **slider** restores that effect/prop to its default *and* clears every keyframe on the channel (scale → 1, opacity → 1, paired fields like Crop L/R reset together; transition labels clear the in/out transition). <kbd>Shift+click</kbd> a label is playhead-local: if you are parked on a keyframe it removes **that** keyframe only; otherwise it sets the value at the playhead to the default (auto-keys if the channel is already animated).
 - **Replace media** — the inspector's **Source** button (any video/audio/image/svg
   clip) swaps the underlying file while keeping position, trim, keyframes,

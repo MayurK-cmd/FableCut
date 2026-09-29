@@ -110,14 +110,14 @@ const TOOLS = [
   },
   {
     name: "fablecut_patch_project",
-    description: "Apply targeted edits to the FableCut project WITHOUT round-tripping the whole document — PREFER THIS over get+set for every edit (it is ~10-100x cheaper in tokens and merge-safe by design: it re-reads the latest document from disk, applies your ops in order, bumps revision once, saves atomically). Ops: {op:'addClip', clip:{…}} (id auto-generated if omitted) · {op:'updateClip', id, set:{…}} · {op:'removeClip', id} · {op:'addMedia', media:{…}} · {op:'removeMedia', id} · {op:'setProject', set:{name|width|height|fps|background|markers|disabledTracks|encodeProfile}}. updateClip merge rules: top-level keys are replaced (keyframes/transitionIn/transitionOut wholesale), `props` merges key-by-key, and setting any key to null deletes it. All-or-nothing: an invalid op aborts the whole patch unsaved.",
+    description: "Apply targeted edits to the FableCut project WITHOUT round-tripping the whole document — PREFER THIS over get+set for every edit (it is ~10-100x cheaper in tokens and merge-safe by design: it re-reads the latest document from disk, applies your ops in order, bumps revision once, saves atomically). Ops: {op:'addClip', clip:{…}} (id auto-generated if omitted) · {op:'updateClip', id, set:{…}} · {op:'removeClip', id} · {op:'addMedia', media:{…}} · {op:'removeMedia', id} · {op:'setProject', set:{name|width|height|fps|background|markers|disabledTracks|lockedTracks|untargetedTracks|encodeProfile}}. updateClip merge rules: top-level keys are replaced (keyframes/transitionIn/transitionOut wholesale), `props` merges key-by-key, and setting any key to null deletes it. LOCKS: the user can lock clips (`locked:true`) and tracks (`lockedTracks`); updateClip / removeClip on a locked clip — or on a clip linked to one — and addClip onto a locked track are refused. Leave locked material alone; only if the user asked you to change it, pass force:true on that op (or unlock first: updateClip set:{locked:null}, which is always allowed). All-or-nothing: an invalid op aborts the whole patch unsaved.",
     inputSchema: {
       type: "object",
       properties: {
         ops: {
           type: "array",
           items: { type: "object" },
-          description: "Edit operations, applied in order (see tool description for shapes)",
+          description: "Edit operations, applied in order (see tool description for shapes). Any op may carry force:true to override a lock the user set.",
         },
       },
       required: ["ops"],
@@ -266,7 +266,10 @@ async function callTool(name, args) {
         `"${doc.name}" ${doc.width}x${doc.height}@${doc.fps} rev:${doc.revision}` +
         (doc.panSchema >= 1 ? " panSchema:1" : "") +
         (doc.background ? ` bg:${doc.background}` : "") +
-        (doc.markers?.length ? ` markers:${doc.markers.length} [${doc.markers.slice(0, 12).map((m) => m.t).join(",")}${doc.markers.length > 12 ? ",…" : ""}]` : ""),
+        (doc.markers?.length ? ` markers:${doc.markers.length} [${doc.markers.slice(0, 12).map((m) => m.t).join(",")}${doc.markers.length > 12 ? ",…" : ""}]` : "") +
+        (doc.lockedTracks?.length ? ` lockedTracks:[${doc.lockedTracks.join(",")}]` : "") +
+        (doc.untargetedTracks?.length ? ` untargetedTracks:[${doc.untargetedTracks.join(",")}]` : "") +
+        (doc.disabledTracks?.length ? ` disabledTracks:[${doc.disabledTracks.join(",")}]` : ""),
         `MEDIA (${doc.media.length}):`,
         ...doc.media.map((m) => `  ${m.id} ${m.kind} "${m.name}"${m.duration ? " " + m.duration + "s" : ""}`),
         `CLIPS (${doc.clips.length}), by track/time:`,
@@ -280,7 +283,9 @@ async function callTool(name, args) {
             const r3 = (n) => Math.round(n * 1000) / 1000;
             return `  ${c.id} ${c.track} ${r3(c.start)}s+${r3(c.duration)}s ${c.kind}` +
               (c.mediaId ? `(${c.mediaId}${c.in ? ` in:${r3(c.in)}` : ""})` : "") +
-              (c.name ? ` "${c.name}"` : "") + fmtProps(c.props, c.kind) + kf + tr;
+              (c.name ? ` "${c.name}"` : "") + fmtProps(c.props, c.kind) + kf + tr +
+              (c.locked === true ? " [locked]" : "") + (c.disabled === true ? " [disabled]" : "") +
+              (c.unlinked === true ? " [unlinked]" : "");
           }),
         `(compact view — full JSON: fablecut_get_project without compact; edit via fablecut_patch_project)`,
       ];
@@ -291,6 +296,22 @@ async function callTool(name, args) {
       if (!Array.isArray(ops) || !ops.length) throw new Error("`ops` must be a non-empty array");
       const proj = readProject();
       const notes = [];
+      // Locks mirror the editor: a clip is locked by its own flag or its track,
+      // and a linked A/V group with any locked member is locked as a whole.
+      const lockedTracks = () => new Set(Array.isArray(proj.lockedTracks) ? proj.lockedTracks : []);
+      const lockReason = (c) => {
+        const group = c.linkGroup ? proj.clips.filter((x) => x.linkGroup === c.linkGroup) : [c];
+        for (const x of group) {
+          const who = x.id === c.id ? `clip ${c.id}` : `clip ${c.id} is linked to ${x.id}, which`;
+          if (x.locked === true) return `${who} is locked`;
+          if (lockedTracks().has(x.track)) return `${who} is on locked track ${x.track}`;
+        }
+        return null;
+      };
+      const refuseLocked = (opName, reason, op) => {
+        if (reason && op.force !== true)
+          throw new Error(`${opName}: ${reason} — the user locked it. Leave it alone, or pass force:true if they asked you to change it`);
+      };
       const mergeInto = (target, set) => {
         for (const [k, v] of Object.entries(set || {})) {
           if (v === null) delete target[k];
@@ -309,6 +330,7 @@ async function callTool(name, args) {
               throw new Error("addClip needs clip{track, start, duration}");
             c.id = c.id || "c_" + uid();
             if (proj.clips.some((x) => x.id === c.id)) throw new Error("addClip: duplicate clip id " + c.id);
+            refuseLocked("addClip", lockedTracks().has(c.track) ? `track ${c.track} is locked` : null, op);
             if (c.kind !== "text" && c.kind !== "adjust" && !proj.media.some((m) => m.id === c.mediaId))
               throw new Error(`addClip: unknown mediaId ${c.mediaId}`);
             proj.clips.push(c);
@@ -318,11 +340,20 @@ async function callTool(name, args) {
           case "updateClip": {
             const c = proj.clips.find((x) => x.id === op.id);
             if (!c) throw new Error("updateClip: no clip " + op.id);
+            // Toggling the lock itself is always allowed — that's how you unlock.
+            const onlyLock = Object.keys(op.set || {}).every((k) => k === "locked");
+            if (!onlyLock) {
+              refuseLocked("updateClip", lockReason(c), op);
+              if (op.set && op.set.track && lockedTracks().has(op.set.track))
+                refuseLocked("updateClip", `track ${op.set.track} is locked`, op);
+            }
             mergeInto(c, op.set);
             notes.push("~" + op.id);
             break;
           }
           case "removeClip": {
+            const doomed = proj.clips.find((x) => x.id === op.id);
+            if (doomed) refuseLocked("removeClip", lockReason(doomed), op);
             const n = proj.clips.length;
             proj.clips = proj.clips.filter((x) => x.id !== op.id);
             if (proj.clips.length === n) throw new Error("removeClip: no clip " + op.id);
@@ -349,7 +380,7 @@ async function callTool(name, args) {
             break;
           }
           case "setProject": {
-            const allowed = ["name", "width", "height", "fps", "background", "markers", "disabledTracks", "exportFrame", "encodeProfile"];
+            const allowed = ["name", "width", "height", "fps", "background", "markers", "disabledTracks", "lockedTracks", "untargetedTracks", "exportFrame", "encodeProfile"];
             for (const [k, v] of Object.entries(op.set || {})) {
               if (!allowed.includes(k)) throw new Error(`setProject: '${k}' not settable (allowed: ${allowed.join(", ")})`);
               if (k === "encodeProfile" && v != null) {
