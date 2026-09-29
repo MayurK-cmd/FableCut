@@ -191,7 +191,12 @@ function listProfilesPublic(detail) {
 function inputColorVf(color, inMatrix) {
   const c = color || DEFAULT_COLOR;
   const matrix = inMatrix === "bt601" ? "bt601" : "bt709";
-  return `scale=in_range=full:in_color_matrix=${matrix}:out_range=${c.range}:out_color_matrix=${c.matrix}`;
+  // Primaries / transfer are stamped on the frames too: frame colour
+  // properties win over the -color_* flags added below, so without this the
+  // file is tagged primaries/transfer "unknown". setparams (not scale's
+  // out_primaries / out_transfer, which need FFmpeg 7.1+) works on older builds.
+  return `scale=in_range=full:in_color_matrix=${matrix}:out_range=${c.range}:out_color_matrix=${c.matrix},` +
+    `setparams=color_primaries=${c.primaries}:color_trc=${c.trc}`;
 }
 function jpegColorTags(color) {
   const c = color || DEFAULT_COLOR;

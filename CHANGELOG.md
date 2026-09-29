@@ -75,6 +75,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   row; the "Assets" heading beside them is gone.
 - The editor's browser tab reads "FableCut - Video Editor".
 
+### Fixed
+- Exports are now tagged with their colour primaries and transfer (BT.709 by
+  default). Every profile used to write them as "unknown", so some players
+  guessed the colours; ProRes lost its matrix tag too. The tags are stamped
+  with `setparams`, which also works on FFmpeg builds older than 7.1.
+
 ## [1.8.0] - 2026-09-29
 
 ### Added
