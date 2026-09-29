@@ -7,29 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.8.0] - 2026-09-29
+
 ### Added
 - **Jump to cut** — `↑` / `↓` move the playhead to the previous / next clip In
   or Out (selected clip first; otherwise enabled tracks). Source monitor: In /
   Out marks. Does not replace ← / → frame step, Home / End, or Ctrl/Cmd+←/→
-  keyframe jump.
-- **Source monitor** (Avid NewsCutter-style single viewer) — Source / Program toggle on the shared monitor. Double-click Project media or a timeline clip to load Source (timeline loads with that clip’s In/Out window). Transport, I/O marks, Space/JKL, and scrubbing follow the active mode; drag-to-timeline is unchanged.
+  keyframe jump. (thanks @PlkMarudny, #74)
+- **Source monitor** (Avid NewsCutter-style single viewer) — Source / Program toggle on the shared monitor. Double-click Project media or a timeline clip to load Source (timeline loads with that clip’s In/Out window). Transport, I/O marks, Space/JKL, and scrubbing follow the active mode; drag-to-timeline is unchanged. (thanks @PlkMarudny, #74)
 - **Insert at playhead** (`,`, or the Source monitor insert icon) — places the Source In→Out window on the timeline at the playhead, splits straddling clips, and ripples everything after; video brings linked audio stems like a bin drop.
 - **Replace at playhead** (`.`, or the Source monitor replace icon) — overwrites onto placement tracks (V1 + A stems, or the lowest remaining V / A lanes if those were removed); also clears overlapping linked AV stems on A3+ so they don’t stack; V2/V3 overlays and standalone music are left alone; no ripple. When Source was loaded from a timeline clip, Replace instead applies the new In→Out to that instance (and linked stems) and ripples later clips on those tracks if the duration changed.
 - **Ripple delete** — timeline toolbar button or <kbd>⇧Del</kbd> removes the selection and closes the gap on enabled tracks (plain <kbd>Del</kbd> still leaves a gap). Insert/replace ripples, splits, gap-close and ripple delete all keep sync lock: linked AV partners move together even on disabled tracks.
 - **Fix: linked A/V integrity on destructive edits** — Replace punches and IN/OUT trims now apply to linked partners on disabled tracks too, and punch re-pairs the surviving head/tail pieces across tracks (previously the pieces stayed unlinked until a reload).
 - **Insert/replace skip disabled tracks on placement** — source-patching style: a disabled V1 drops the picture, disabled A-lanes drop those stems; when every target lane is disabled the op toasts and does nothing.
 - Program Monitor transport: playhead as `current / sequence duration` on the
-  left; when IN/OUT are set, a right-side stack of IN, marked duration, OUT.
+  left; when IN/OUT are set, a right-side stack of IN, marked duration, OUT. (thanks @PlkMarudny, #68)
 - Ctrl/Cmd-click an inspector **slider** to reset that property to its default
   and clear its keyframes (same as Ctrl/Cmd-clicking the label — scale → 1,
-  opacity → 1, brightness → 100, …).
+  opacity → 1, brightness → 100, …). (thanks @PlkMarudny, #73)
 - **Import from URL** — `POST /api/import-url` downloads an HTTPS video, audio
   or image into `./media/` and returns a same-origin `/media/…` src. The
   editor **+ URL** button and `fablecut_import_media` (now accepts `https://`
   as well as a local path) use it. HTTPS-only with SSRF guards (no localhost /
   private / link-local / CGNAT, including after DNS and redirects). Remote SVG
   is refused so a scripted file cannot run on the editor origin. A raw HTTPS
-  `media.src` is still unsupported — canvas CORS would break export.
+  `media.src` is still unsupported — canvas CORS would break export. (thanks @PlkMarudny, #63)
 - **WebCodecs export** — a second export engine beside Fast. The browser
   HW-encodes H.264 with `VideoEncoder` and streams the Annex-B elementary
   stream to the server, which stream-copies it into MP4 (`-c:v copy`) and muxes
@@ -39,14 +41,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `-r` on the input forces CFR PTS so the file matches `project.fps` exactly,
   and BT.709 tags are written into both the bitstream and the container.
   Abandoned sessions are reclaimed by an idle sweeper, and SIGINT / SIGTERM
-  clean up in-flight ffmpeg processes and temp dirs.
+  clean up in-flight ffmpeg processes and temp dirs. (thanks @PlkMarudny, #49)
 - A real test suite (`npm test`, zero dependencies, `node:test`): MCP protocol
   negotiation and framing, MCP tool semantics including the conflict rules, the
   REST API with its Host/Origin and path-traversal guards, and the shipped SVG
   library. CI runs it on Node 18, 20 and 22 for every pull request.
 - Dynamic video + audio tracks (default 3+4; **+V** / **+A**, right-click
   **Remove track**, header **S** solo; up to 16 per kind). The live lane list is
-  stored on `project.json` as `tracks`.
+  stored on `project.json` as `tracks`. (thanks @PlkMarudny, #41)
 - Per-clip **stereo pan** (`props.pan`, −1…+1) on video/audio clips — inspector
   slider + keyframes; preview, audio-hold, and both export engines honor it.
   Linked stems default to L `−1` / R `+1` / center for other channels. Compact
@@ -54,7 +56,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Stereo **master meter** (L/R) on the monitor — post-pan program sum in the
   same RMS / LUFS / Peak modes as the per-track bars; A-tracks + video spill
   route through one summed path when the meter worklet is active. Per-track
-  bars collapse via **◂** / **▸** beside the master strip (master L/R stay visible).
+  bars collapse via **◂** / **▸** beside the master strip (master L/R stay visible). (thanks @PlkMarudny, #41)
+- **Export frame / reframing** — the composition canvas can be larger than the
+  delivery: set `project.exportFrame` `{x, y, w, h}` (or drag the frame on the
+  monitor) and Fast export renders only that region, e.g. a 9:16 reel cut from
+  a 16:9 edit (Realtime and WebCodecs are unavailable while a frame is set).
+  The outside is dimmed in the monitor, or cropped away with the lightbulb
+  toggle. (thanks @PlkMarudny, #46, #66)
+- **Encoding profiles for Fast export** — `encoding-profiles.json` defines the
+  ffmpeg presets picked in the Export dialog: Draft, Delivery (the previous
+  default), High quality 4:2:2 10-bit, Broadcast 1080i50 MOV and ProRes 422 HQ,
+  each with its colour tags. `fablecut_encode_profiles` lists them over MCP, and
+  the list reloads when the file changes. (thanks @PlkMarudny, #48)
+- **Editable keyframes** — park the playhead on a keyframe (Ctrl/Cmd+← / →) and
+  its value loads into the inspector for editing. Shift-click a property label
+  to remove that keyframe; Ctrl/Cmd-click removes them all. Once a property has
+  keyframes, changing it at the playhead adds one. (thanks @PlkMarudny, #70)
+- Two animated SVG overlays: `spawning-hearts` (TikTok-style reaction) (thanks
+  @PlkMarudny, #78) and `ai-star` (twinkling AI sparkle) (thanks @PlkMarudny, #79).
 
 ### Changed
 - Fast export no longer waits for each JPEG HTTP POST before drawing the next
@@ -62,7 +81,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   JPEG encode runs in workers and uploads overlap in batches. Piping uncompressed
   RGBA over HTTP was slower (1080p ≈ 8 MiB/frame); the UI is back on JPEG
   image2pipe. `pixelFormat: "rgba"` remains on `/api/export/begin` for callers
-  that want raw frames.
+  that want raw frames. (thanks @PlkMarudny, #72)
 - `POST /api/export/begin` now **requires** `fps` (pass `project.fps`) instead
   of defaulting to 30, and takes `mode: "jpeg" | "annexb"`. Callers that relied
   on the old default must send the value; a missing or non-numeric `fps` is a
@@ -72,6 +91,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   file back once: it stamps `panSchema: 1`, hard-pans linked stems that had no
   `pan`, and every save from then on also emits `tracks`. Hand-edited documents
   that omit `panSchema: 1` will be migrated again on the next open.
+- Audio meters have more segments, handle silence better and resize with the
+  panel (thanks @PlkMarudny, #65, #80).
+- The timeline playhead moves with a CSS transform instead of `left`, so
+  playback no longer triggers layout shifts (thanks @PlkMarudny, #71).
 
 ### Fixed
 - Fast (and WebCodecs) export no longer repeats video frames. The compositor was
@@ -84,7 +107,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Export play-ahead is less twitchy mid-shot: JPEG/encoder queue depth no longer
   forces a full pause+seek on every blip (only when the queue is deep or the
   compositor tick fell behind), and play-ahead no longer hard-seeks just because
-  `currentTime` ran ahead of the presented picture.
+  `currentTime` ran ahead of the presented picture. (thanks @PlkMarudny, #75)
 - `waitForPresentedFrame` no longer treats a presentation timeout (or an rvfc
   callback without `mediaTime`) as success — `hardSeekVideo` retries up to three
   times instead of recording `currentTime` as the presented frame.
@@ -94,7 +117,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `crossOrigin=anonymous` for the encode). A clip whose server omits
   `Access-Control-Allow-Origin` still cannot be JPEG-encoded — import it into
   `./media` instead.
-- MCP `initialize` no longer echoes an unsupported `protocolVersion`. Missing or unknown versions now negotiate to `2025-11-25` instead of claiming a revision the server does not speak (#58).
+- MCP `initialize` no longer echoes an unsupported `protocolVersion`. Missing or unknown versions now negotiate to `2025-11-25` instead of claiming a revision the server does not speak (#58; thanks @michaelxer, #59).
 - `CLAUDE.md` pointed agents at `fablecut_docs {section:"props"}`, which matches no `## ` heading and returns nothing useful; it now names a real section.
 - Audio graph teardown on project reload — clip chains
   (`MediaElementSource → splitter → gain → panner → bus`) are now fully
@@ -105,7 +128,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Export follows IN/OUT** — Fast, WebCodecs, and Realtime honor a Range
   choice in the Export dialog (Entire timeline / IN–OUT; IN–OUT is the default
   when markers exist). Effective IN/OUT export bounds are clamped to `projDur`
-  so an IN past the last clip cannot become a one-frame black file.
+  so an IN past the last clip cannot become a one-frame black file. (thanks @PlkMarudny, #68)
+- Master audio meter readings now match the per-track meters, and master LUFS
+  is measured on the summed program instead of falling back to RMS (thanks
+  @PlkMarudny, #67).
+- `heart-pop.svg` no longer flashes a stray shape at the start of its animation
+  (thanks @PlkMarudny, #69).
 
 ## [1.7.0] - 2026-08-25
 
@@ -369,6 +397,7 @@ the report in [#1](https://github.com/ronak-create/FableCut/issues/1) — thanks
 - Three control surfaces for AI agents: **MCP server**, direct `project.json`
   editing, and a **REST API** with live-reload over server-sent events.
 
+[1.8.0]: https://github.com/ronak-create/FableCut/compare/v1.7.0...v1.8.0
 [1.7.0]: https://github.com/ronak-create/FableCut/compare/v1.6.0...v1.7.0
 [1.6.0]: https://github.com/ronak-create/FableCut/compare/v1.5.0...v1.6.0
 [1.5.0]: https://github.com/ronak-create/FableCut/compare/v1.4.0...v1.5.0
