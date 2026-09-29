@@ -5,7 +5,7 @@
 > REST API while a human watches the cut change. MIT licensed, zero npm
 > dependencies, runs locally on your own machine.
 
-FableCut is not a cloud service and has no black-box render API. x in `project.json`. An
+FableCut is not a cloud service and has no black-box render API. The whole edit lives in `project.json`. An
 agent rewrites that file the way it rewrites code; the open editor reloads in
 about 150 ms. A human and an agent can work the same timeline at once.
 

@@ -212,6 +212,9 @@
      are hidden. A row of clip chips replaces the timeline as the way to put a
      clip in the inspector. The editor's own code is untouched. */
   var EMBED = /(?:^|[?&])embed=1/.test(location.search);
+  /* view=monitor: the picture and transport only (the landing page's JSON pane
+     is the inspector there) */
+  var MONITOR_ONLY = EMBED && /(?:^|[?&])view=monitor(?:&|$)/.test(location.search);
 
   function styleEmbed() {
     var css = document.createElement("style");
@@ -235,9 +238,17 @@
       "}",
       "@media (max-width: 560px) {",
       "  html.fc-embed .panel.inspector { display: none !important; }",
+      // a phone-width frame has room for the playhead time and play controls only
+      "  html.fc-embed .tc-slash, html.fc-embed #tcTotal, html.fc-embed #btnHome, html.fc-embed #btnEnd,",
+      "  html.fc-embed #btnSpeed, html.fc-embed #exportFrameSel, html.fc-embed #btnExportFrame,",
+      "  html.fc-embed #btnGuides { display: none !important; }",
       "  html.fc-embed .upper { grid-template-rows: minmax(0, 1fr) !important; }",
       "}"
-    ].join("\n");
+    ].concat(MONITOR_ONLY ? [
+      "html.fc-embed .panel.inspector, html.fc-embed .panel.monitor .panel-head { display: none !important; }",
+      "html.fc-embed .upper { grid-template-columns: minmax(0, 1fr) !important; grid-template-rows: minmax(0, 1fr) !important; }",
+      "html.fc-embed .panel.monitor { border: 0 !important; border-radius: 0 !important; }"
+    ] : []).join("\n");
     document.head.appendChild(css);
     document.documentElement.classList.add("fc-embed");
   }
@@ -248,6 +259,27 @@
     try { if (typeof window.setTime === "function") window.setTime(t); } catch (e) { }
   }
   if (EMBED) styleEmbed();
+
+  /* The canvas only draws with faces that are already loaded, so fetch the
+     title fonts the demo and the landing page's example edits use up front.
+     CORS mode keeps the canvas origin-clean. */
+  (function preloadTitleFonts() {
+    var families = ["Anton", "Playfair Display", "Bebas Neue", "Roboto"];
+    var link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.crossOrigin = "anonymous";
+    link.href = "https://fonts.googleapis.com/css2?family=Anton&family=Playfair+Display:wght@400;700" +
+      "&family=Bebas+Neue&family=Roboto:wght@400;600;700&display=swap";
+    link.onload = function () {
+      if (!document.fonts || !document.fonts.load) return;
+      families.forEach(function (f) {
+        ["400", "700"].forEach(function (w) {
+          document.fonts.load(w + ' 64px "' + f + '"').catch(function () { });
+        });
+      });
+    };
+    document.head.appendChild(link);
+  })();
 
   window.addEventListener("load", function () {
     setTimeout(function () { nudge(1.2); }, 700);

@@ -2,12 +2,8 @@ Fonts in this directory are redistributed under the SIL Open Font License 1.1
 (https://openfontlicense.org). The OFL permits bundling and redistribution with
 any project, including commercial use, provided this notice is retained.
 
-- Anton            - https://fonts.google.com/specimen/Anton
-- Bebas Neue       - https://fonts.google.com/specimen/Bebas+Neue
-- Abril Fatface    - https://fonts.google.com/specimen/Abril+Fatface
-- Oswald           - https://fonts.google.com/specimen/Oswald
-- Playfair Display - https://fonts.google.com/specimen/Playfair+Display
-- Archivo Black    - https://fonts.google.com/specimen/Archivo+Black
+- Geist       - https://github.com/vercel/geist-font (Copyright 2024 The Geist Project Authors)
+- Geist Mono  - https://github.com/vercel/geist-font (Copyright 2024 The Geist Project Authors)
 
-Additional Google Fonts may be fetched at runtime by the page's FontKit loader
-(see main.js); those are served by Google Fonts under the OFL as well.
+The files are the Google Fonts latin and latin-ext subsets
+(https://fonts.google.com/specimen/Geist, https://fonts.google.com/specimen/Geist+Mono).

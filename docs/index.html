@@ -6,7 +6,9 @@
 <title>FableCut - the browser video editor AI agents can drive</title>
 <meta name="description" content="A Premiere-style video editor that runs in your browser and exposes its whole timeline as one JSON file. Edit it yourself, or let an AI agent cut your video while you watch.">
 <link rel="icon" type="image/svg+xml" href="./favicon.svg">
-<meta name="theme-color" content="#0a0a0f">
+<meta name="color-scheme" content="dark light">
+<meta name="theme-color" content="#0a0a0b" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#fafafa" media="(prefers-color-scheme: light)">
 <link rel="canonical" href="https://fablecut.space/">
 
 <!-- Open Graph / social. Absolute URLs: most crawlers will not resolve a
@@ -18,9 +20,9 @@
 <meta property="og:title" content="FableCut - the browser video editor AI agents can drive">
 <meta property="og:description" content="A Premiere-style browser video editor whose whole timeline is one JSON file. Any agent that writes JSON can edit video.">
 <meta property="og:image" content="https://fablecut.space/screenshot.png">
-<meta property="og:image:width" content="1502">
-<meta property="og:image:height" content="812">
-<meta property="og:image:alt" content="The FableCut editor: a timeline with four video and four audio tracks, per-track and master audio meters, a preview monitor, and the inspector showing a clip's volume and pan.">
+<meta property="og:image:width" content="1600">
+<meta property="og:image:height" content="900">
+<meta property="og:image:alt" content="The FableCut editor: project bin, program monitor showing a title over graded footage, the inspector, and a timeline with titles, SVG overlays, an adjustment layer, colored markers and three audio tracks.">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:title" content="FableCut - the browser video editor AI agents can drive">
 <meta name="twitter:description" content="A Premiere-style browser video editor whose whole timeline is one JSON file. Any agent that writes JSON can edit video.">
@@ -53,17 +55,9 @@
         "Fast ffmpeg export, WebCodecs hardware export and a realtime fallback"
       ],
       "softwareRequirements": "Node.js 18 or newer and a Chromium-based browser; ffmpeg optional for fast export",
-      "offers": {
-        "@type": "Offer",
-        "price": "0",
-        "priceCurrency": "USD"
-      },
+      "offers": { "@type": "Offer", "price": "0", "priceCurrency": "USD" },
       "screenshot": "https://fablecut.space/screenshot.png",
-      "author": {
-        "@type": "Person",
-        "name": "Ronak Parmar",
-        "url": "https://github.com/ronak-create"
-      }
+      "author": { "@type": "Person", "name": "Ronak Parmar", "url": "https://github.com/ronak-create" }
     },
     {
       "@type": "SoftwareSourceCode",
@@ -73,9 +67,7 @@
       "programmingLanguage": "JavaScript",
       "runtimePlatform": "Node.js",
       "license": "https://opensource.org/licenses/MIT",
-      "about": {
-        "@id": "https://fablecut.space/#app"
-      }
+      "about": { "@id": "https://fablecut.space/#app" }
     },
     {
       "@type": "WebSite",
@@ -83,505 +75,302 @@
       "url": "https://fablecut.space/",
       "name": "FableCut",
       "inLanguage": "en",
-      "about": {
-        "@id": "https://fablecut.space/#app"
-      }
-    },
-    {
-      "@type": "FAQPage",
-      "@id": "https://fablecut.space/#faq",
-      "mainEntity": [
-        {
-          "@type": "Question",
-          "name": "Can an AI actually edit video?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes, and you get to watch it happen. Your whole edit lives in one file called project.json: the clips, the tracks, the effects, every keyframe. An agent rewrites that file the same way it writes code, and the open editor picks up the change in about 150 milliseconds. Nothing is hidden behind a render API you cannot see into."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "What is an MCP video editor?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "MCP is the Model Context Protocol, the standard way an AI client talks to outside tools. FableCut ships an MCP server, so Claude Code, Claude Desktop or any other MCP client gets real typed tools for reading and rewriting your timeline instead of guessing at it."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Do I need ffmpeg?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Only if you want the fast export. Put ffmpeg on your PATH and exports run through it. Skip it and the editor records the timeline in the browser instead. Everything else, preview and trimming and effects and titles, works fine without it."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Does my footage get uploaded anywhere?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "No. The server runs on your own machine and listens on 127.0.0.1 only, so your media sits in a local folder and never goes near anyone's cloud. Two things do touch the network, and both are your call: the + URL button downloads a file you paste in, and AI background removal fetches its model from a CDN the first time you use it."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "Is FableCut free?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Yes. MIT licensed, free for personal and commercial work, with no account, no telemetry and no paid tier waiting for you later. It also has zero npm dependencies, so node server.js really is the whole install."
-          }
-        },
-        {
-          "@type": "Question",
-          "name": "What do I need to run it?",
-          "acceptedAnswer": {
-            "@type": "Answer",
-            "text": "Node 18 or newer and a Chromium browser. Clone the repo, run node server.js, open http://localhost:7777. It works on Windows, macOS and Linux, and if you would rather not deal with paths at all, it installs as a Claude Code plugin."
-          }
-        }
-      ]
+      "about": { "@id": "https://fablecut.space/#app" }
     }
   ]
 }
 </script>
-<link rel="stylesheet" href="./styles.css?v=25">
+<script>document.documentElement.classList.add("js");try{var t=localStorage.getItem("fc-theme");if(t==="light"||t==="dark")document.documentElement.setAttribute("data-theme",t)}catch(e){}</script>
+<link rel="preload" href="./fonts/geist-latin.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="stylesheet" href="./styles.css?v=30">
 </head>
 <body>
 
+<!-- Icons: Phosphor (MIT). -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-arrow" viewBox="0 0 256 256"><path fill="currentColor" d="M221.66,133.66l-72,72a8,8,0,0,1-11.32-11.32L196.69,136H40a8,8,0,0,1,0-16H196.69L138.34,61.66a8,8,0,0,1,11.32-11.32l72,72A8,8,0,0,1,221.66,133.66Z"/></symbol>
+  <symbol id="i-ne" viewBox="0 0 256 256"><path fill="currentColor" d="M200,64V168a8,8,0,0,1-16,0V83.31L69.66,197.66a8,8,0,0,1-11.32-11.32L172.69,72H88a8,8,0,0,1,0-16H192A8,8,0,0,1,200,64Z"/></symbol>
+  <symbol id="i-copy" viewBox="0 0 256 256"><path fill="currentColor" d="M216,32H88a8,8,0,0,0-8,8V80H40a8,8,0,0,0-8,8V216a8,8,0,0,0,8,8H168a8,8,0,0,0,8-8V176h40a8,8,0,0,0,8-8V40A8,8,0,0,0,216,32ZM160,208H48V96H160Zm48-48H176V88a8,8,0,0,0-8-8H96V48H208Z"/></symbol>
+  <symbol id="i-check" viewBox="0 0 256 256"><path fill="currentColor" d="M229.66,77.66l-128,128a8,8,0,0,1-11.32,0l-56-56a8,8,0,0,1,11.32-11.32L96,188.69,218.34,66.34a8,8,0,0,1,11.32,11.32Z"/></symbol>
+  <symbol id="i-play" viewBox="0 0 256 256"><path fill="currentColor" d="M240,128a15.74,15.74,0,0,1-7.6,13.51L88.32,229.65a16,16,0,0,1-16.2.3A15.86,15.86,0,0,1,64,216.13V39.87a15.86,15.86,0,0,1,8.12-13.82,16,16,0,0,1,16.2.3L232.4,114.49A15.74,15.74,0,0,1,240,128Z"/></symbol>
+  <symbol id="i-star" viewBox="0 0 256 256"><path fill="currentColor" d="M234.29,114.85l-45,38.83L203,211.75a16.4,16.4,0,0,1-24.5,17.82L128,198.49,77.47,229.57A16.4,16.4,0,0,1,53,211.75l13.76-58.07-45-38.83A16.46,16.46,0,0,1,31.08,86l59-4.76,22.76-55.08a16.36,16.36,0,0,1,30.27,0l22.75,55.08,59,4.76a16.46,16.46,0,0,1,9.37,28.86Z"/></symbol>
+  <symbol id="i-gh" viewBox="0 0 256 256"><path fill="currentColor" d="M208.31,75.68A59.78,59.78,0,0,0,202.93,28,8,8,0,0,0,196,24a59.75,59.75,0,0,0-48,24H124A59.75,59.75,0,0,0,76,24a8,8,0,0,0-6.93,4,59.78,59.78,0,0,0-5.38,47.68A58.14,58.14,0,0,0,56,104v8a56.06,56.06,0,0,0,48.44,55.47A39.8,39.8,0,0,0,96,192v8H72a24,24,0,0,1-24-24A40,40,0,0,0,8,136a8,8,0,0,0,0,16,24,24,0,0,1,24,24,40,40,0,0,0,40,40H96v16a8,8,0,0,0,16,0V192a24,24,0,0,1,48,0v40a8,8,0,0,0,16,0V192a39.8,39.8,0,0,0-8.44-24.53A56.06,56.06,0,0,0,216,112v-8A58.14,58.14,0,0,0,208.31,75.68ZM200,112a40,40,0,0,1-40,40H112a40,40,0,0,1-40-40v-8a41.74,41.74,0,0,1,6.9-22.48A8,8,0,0,0,80,73.83a43.81,43.81,0,0,1,.79-33.58,43.88,43.88,0,0,1,32.32,20.06A8,8,0,0,0,119.82,64h32.35a8,8,0,0,0,6.74-3.69,43.87,43.87,0,0,1,32.32-20.06A43.81,43.81,0,0,1,192,73.83a8.09,8.09,0,0,0,1,7.65A41.72,41.72,0,0,1,200,104Z"/></symbol>
+  <symbol id="i-sun" viewBox="0 0 256 256"><path fill="currentColor" d="M120,40V16a8,8,0,0,1,16,0V40a8,8,0,0,1-16,0Zm72,88a64,64,0,1,1-64-64A64.07,64.07,0,0,1,192,128Zm-16,0a48,48,0,1,0-48,48A48.05,48.05,0,0,0,176,128ZM58.34,69.66A8,8,0,0,0,69.66,58.34l-16-16A8,8,0,0,0,42.34,53.66Zm0,116.68-16,16a8,8,0,0,0,11.32,11.32l16-16a8,8,0,0,0-11.32-11.32ZM192,72a8,8,0,0,0,5.66-2.34l16-16a8,8,0,0,0-11.32-11.32l-16,16A8,8,0,0,0,192,72Zm5.66,114.34a8,8,0,0,0-11.32,11.32l16,16a8,8,0,0,0,11.32-11.32ZM48,128a8,8,0,0,0-8-8H16a8,8,0,0,0,0,16H40A8,8,0,0,0,48,128Zm80,80a8,8,0,0,0-8,8v24a8,8,0,0,0,16,0V216A8,8,0,0,0,128,208Zm112-88H216a8,8,0,0,0,0,16h24a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="i-moon" viewBox="0 0 256 256"><path fill="currentColor" d="M233.54,142.23a8,8,0,0,0-8-2,88.08,88.08,0,0,1-109.8-109.8,8,8,0,0,0-10-10,104.84,104.84,0,0,0-52.91,37A104,104,0,0,0,136,224a103.09,103.09,0,0,0,62.52-20.88,104.84,104.84,0,0,0,37-52.91A8,8,0,0,0,233.54,142.23ZM188.9,190.34A88,88,0,0,1,65.66,67.11a89,89,0,0,1,31.4-26A106,106,0,0,0,96,56,104.11,104.11,0,0,0,200,160a106,106,0,0,0,14.92-1.06A89,89,0,0,1,188.9,190.34Z"/></symbol>
+  <symbol id="i-x" viewBox="0 0 256 256"><path fill="currentColor" d="M205.66,194.34a8,8,0,0,1-11.32,11.32L128,139.31,61.66,205.66a8,8,0,0,1-11.32-11.32L116.69,128,50.34,61.66A8,8,0,0,1,61.66,50.34L128,116.69l66.34-66.35a8,8,0,0,1,11.32,11.32L139.31,128Z"/></symbol>
+  <symbol id="i-menu" viewBox="0 0 256 256"><path fill="currentColor" d="M224,128a8,8,0,0,1-8,8H40a8,8,0,0,1,0-16H216A8,8,0,0,1,224,128ZM40,72H216a8,8,0,0,0,0-16H40a8,8,0,0,0,0,16ZM216,184H40a8,8,0,0,0,0,16H216a8,8,0,0,0,0-16Z"/></symbol>
+  <symbol id="i-undo" viewBox="0 0 256 256"><path fill="currentColor" d="M224,128a96,96,0,0,1-94.71,96H128A95.38,95.38,0,0,1,62.1,197.8a8,8,0,0,1,11-11.63A80,80,0,1,0,71.43,71.39a3.07,3.07,0,0,1-.26.25L44.59,96H72a8,8,0,0,1,0,16H24a8,8,0,0,1-8-8V56a8,8,0,0,1,16,0V85.8L60.25,60A96,96,0,0,1,224,128Z"/></symbol>
+  <symbol id="i-logo" viewBox="0 0 512 512">
+    <defs><linearGradient id="lg-brand" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7b6cff"/><stop offset="1" stop-color="#4f8cff"/></linearGradient></defs>
+    <rect width="512" height="512" rx="112" fill="url(#lg-brand)"/>
+    <g fill="#fff"><path d="M188 146 L244 176 L244 336 L188 366 Z"/><path d="M268 189 L392 256 L268 323 Z"/></g>
+  </symbol>
+</svg>
+
 <a class="skip" href="#main">Skip to content</a>
 
-<!-- ── Background: the page is graded like a FableCut edit ──
-     aurora wash + fine grid + film grain + vignette + a cursor spotlight.
-     All fixed, non-interactive, and disabled under reduced motion. -->
-<div class="fx" aria-hidden="true">
-  <div class="fx-aurora"></div>
-  <div class="fx-spot" id="fxSpot"></div>
-  <div class="fx-grain"></div>
-  <div class="fx-vignette"></div>
-</div>
-
-<!-- ── Nav ── -->
 <header class="nav" id="nav">
-  <div class="nav-inner">
-    <a class="brand" href="#top" aria-label="FableCut home">
-      <svg class="brand-mark" viewBox="0 0 512 512" width="26" height="26" aria-hidden="true">
-        <defs><linearGradient id="ng" x1="0" y1="0" x2="1" y2="1">
-          <stop offset="0" stop-color="#7b6cff"/><stop offset="1" stop-color="#4f8cff"/>
-        </linearGradient></defs>
-        <rect width="512" height="512" rx="112" fill="url(#ng)"/>
-        <g fill="#fff"><path d="M188 146 L244 176 L244 336 L188 366 Z"/><path d="M268 189 L392 256 L268 323 Z"/></g>
-      </svg>
-      <span>FableCut</span>
-    </a>
-    <nav class="nav-links" aria-label="Primary">
+  <div class="wrap nav-inner">
+    <a class="brand" href="./" aria-label="FableCut home"><svg aria-hidden="true"><use href="#i-logo"/></svg><span>FableCut</span></a>
+    <nav class="nav-links" id="navLinks" aria-label="Primary">
       <a href="#playground">Playground</a>
-      <a href="#demo">Demo</a>
-      <a href="#how">How it works</a>
-      <a href="#mentions">Mentions</a>
-      <a href="#start">Quick start</a>
-      <a href="#faq">FAQ</a>
+      <a href="./start/">Get started</a>
+      <a href="./community/">Community</a>
       <a href="https://deepwiki.com/ronak-create/FableCut" rel="noopener" target="_blank">Docs</a>
-      <a href="https://discord.gg/EFMQH7d6Tv" rel="noopener" target="_blank">Discord</a>
-      <a class="nav-cta" href="https://github.com/ronak-create/FableCut" rel="noopener" target="_blank">
-        <svg class="star-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 .587l3.668 7.431 8.2 1.192-5.934 5.783 1.401 8.169L12 18.896l-7.335 3.866 1.401-8.169L.132 9.21l8.2-1.192z"/></svg>
-        <span>GitHub</span>
-        <span class="nav-star-count" data-gh-stars data-fallback="★">…</span>
-      </a>
     </nav>
-    <button class="nav-toggle" id="navToggle" aria-label="Toggle menu" aria-expanded="false">
-      <span></span><span></span>
-    </button>
+    <div class="nav-end">
+      <a class="gh" href="https://github.com/ronak-create/FableCut" rel="noopener" target="_blank" aria-label="FableCut on GitHub">
+        <svg class="i" aria-hidden="true"><use href="#i-gh"/></svg><span class="gh-label">GitHub</span><span class="gh-count" data-stars></span>
+      </a>
+      <button class="menu-btn" id="menuBtn" type="button" aria-label="Menu" aria-expanded="false" aria-controls="navLinks"><svg class="i" aria-hidden="true"><use href="#i-menu"/></svg></button>
+    </div>
   </div>
 </header>
 
 <main id="main">
 
-<!-- ── Hero ── -->
-<section class="hero" id="top">
-  <canvas class="hero-ascii" id="heroAscii" aria-hidden="true"></canvas>
-  <div class="hero-glow" aria-hidden="true"></div>
-  <div class="hero-inner">
-    <div class="hero-copy reveal">
-      <h1 class="hero-title">The browser video editor<br>agents can drive.</h1>
-      <p class="lede">A Premiere-style editor whose whole timeline is one JSON file. Any agent that writes JSON can edit video.</p>
-      <div class="cta-row">
-        <a class="btn btn-primary" href="https://github.com/ronak-create/FableCut" rel="noopener" target="_blank">Get it on GitHub</a>
-        <a class="hero-demo-link" href="#demo">Watch the demo <span aria-hidden="true">&rarr;</span></a>
-      </div>
-      <p class="hero-note">Zero npm dependencies. One <code>node server.js</code>. MIT licensed.</p>
-      <p class="agent-ticker" role="status" aria-live="off" aria-label="An agent editing in real time">
-        <span class="spin" aria-hidden="true">&#x280B;</span>
-        <span class="verb">editing timeline</span>
-        <span class="sep" aria-hidden="true">&middot;</span>
-        <span class="elapsed">0s</span>
-        <span class="sep" aria-hidden="true">&middot;</span>
-        <span class="dl" aria-hidden="true">&darr;</span>
-        <span class="tokens">0</span>&nbsp;tokens
-      </p>
+<section class="hero">
+  <div class="wrap">
+    <a class="pill" id="relPill" href="https://github.com/ronak-create/FableCut/releases/latest" rel="noopener" target="_blank">
+      <span class="pill-tag" data-rel-tag>v1.9.0</span>
+      <span class="pill-txt" data-rel-name>Targeting &amp; locks, trim tools, markers &amp; full JKL</span>
+      <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg>
+    </a>
+    <h1 class="hero-title"><span class="wipe">The browser video editor <span class="br-lg"></span>agents can drive.</span><span class="ph" aria-hidden="true"></span></h1>
+    <p class="hero-sub">A Premiere-style editor whose whole timeline is one JSON file. Any agent that writes JSON can edit video.</p>
+    <div class="hero-cta">
+      <a class="btn btn-primary" href="./start/">Get started</a>
+      <button class="btn btn-ghost" type="button" data-demo><svg class="i" aria-hidden="true"><use href="#i-play"/></svg>Watch the demo</button>
     </div>
-    <div class="hero-shot reveal" id="playground">
-      <p class="play-label"><span class="tick"></span>Playground</p>
-      <div class="window">
-        <div class="play" id="play">
-          <div class="play-doc">
-            <div class="play-doc-head">
-              <span>project.json</span>
-              <button class="play-reset" id="playReset" type="button">Reset</button>
-            </div>
-            <textarea id="playJson" spellcheck="false" autocapitalize="off" autocomplete="off"
-              aria-label="The project document. Change a value and the editor beside it re-renders."></textarea>
-            <div class="play-mark" id="playMark" aria-hidden="true"></div>
-            <p class="play-status" id="playStatus" role="status" aria-live="polite"></p>
-          </div>
-          <ul class="play-clips" id="playClips" aria-label="Clips in this project"></ul>
-          <div class="play-frame">
-            <iframe id="playFrame" data-src="./demo/?embed=1" title="The FableCut editor, running on this page"></iframe>
-          </div>
-        </div>
+    <div class="shot">
+      <div class="shot-frame">
+        <picture>
+          <source type="image/webp" srcset="./screenshot.webp 1600w, ./screenshot@2x.webp 3200w" sizes="(min-width: 1280px) 1200px, 94vw">
+          <img src="./screenshot.png" width="1600" height="900" fetchpriority="high"
+               alt="The FableCut editor: project bin, program monitor showing a title over graded footage, the inspector, and a timeline with titles, SVG overlays, an adjustment layer, colored markers and three audio tracks.">
+        </picture>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ── Demo ── -->
-<section class="section demo" id="demo">
+<section class="section" id="playground">
   <div class="wrap">
-    <div class="head demo-head reveal zoom">
-      <span class="tick"></span>
-      <h2>This reel was edited by an AI agent, locally, live.</h2>
-      <p class="sub">No timeline dragging, no keyframing by hand. An agent wrote <code class="tag-code">project.json</code> in a real session while the browser reloaded in real time. What you see is the actual output.</p>
+    <div class="head reveal">
+      <h2>Edit the file. Watch the cut change.</h2>
+      <p>Every clip, title and keyframe lives in <code class="ic">project.json</code>. Try an edit the way an agent would write it, or type into the file yourself.</p>
     </div>
-    <figure class="demo-video reveal">
-      <video controls preload="metadata" poster="./screenshot.png"
-             src="https://github.com/ronak-create/FableCut/releases/download/v1.3.0/fablecut-demo.mp4">
-        Your browser cannot play this video.
-        <a href="https://github.com/ronak-create/FableCut/releases/tag/v1.3.0" rel="noopener" target="_blank">Download the demo reel</a>.
-      </video>
-      <figcaption>Music: Digital Lemonade by Kevin MacLeod, CC BY 4.0.</figcaption>
-    </figure>
-  </div>
-</section>
 
-<!-- ── Primer: how does an AI edit my video? ── -->
-<section class="section primer editorial" id="primer">
-  <div class="wrap">
-    <div class="head reveal zoom">
-      <span class="tick"></span>
-      <h2>How an AI actually edits a video.</h2>
-      <p class="sub">If you cut video but have never let software do the cutting, here is the whole idea in three steps. No coding required to follow along.</p>
-    </div>
-    <div class="flow reveal">
-      <span class="flow-line" aria-hidden="true"></span>
-      <ol class="flow-steps">
-        <li class="fstep">
-          <span class="node" aria-hidden="true"></span>
-          <div class="idx">01</div>
-          <h3>You describe the edit</h3>
-          <p>Ask in plain language: cut this to the beat, drop in a title, grade it cinematic. An agent is simply software that reads your request and acts on it.</p>
-        </li>
-        <li class="fstep">
-          <span class="node" aria-hidden="true"></span>
-          <div class="idx">02</div>
-          <h3>It writes the timeline</h3>
-          <p>Your whole edit lives in one text file, <code>project.json</code>: clips, tracks, effects, keyframes, transitions. The agent edits that instead of clicking around.</p>
-        </li>
-        <li class="fstep">
-          <span class="node" aria-hidden="true"></span>
-          <div class="idx">03</div>
-          <h3>You watch it happen</h3>
-          <p>The open editor reloads in about 150 milliseconds. The timeline updates in front of you. Nudge anything by hand, then export when it feels right.</p>
-        </li>
-      </ol>
-    </div>
-  </div>
-</section>
-
-<!-- ── How it works: control surfaces ── -->
-<section class="section how" id="how">
-  <div class="wrap">
-    <div class="how-grid">
-      <div class="how-copy reveal zoom">
-        <span class="tick"></span>
-        <h2>The project file is the interface.</h2>
-        <p class="sub">Most AI video tools hide the edit behind a black-box API. FableCut does the opposite: the timeline is a plain document, and anything that can write it can edit video. A human and an agent can work the same timeline at once.</p>
-        <ul class="how-list">
-          <li><strong>MCP server</strong><span>Claude Code, Claude Desktop, Cursor, VS Code, Codex, Gemini CLI, Cline, Zed, opencode. Any MCP client drives it with typed tools.</span></li>
-          <li><strong>project.json</strong><span>Edit the file directly. The UI hot-reloads over server-sent events.</span></li>
-          <li><strong>REST API</strong><span>Plain HTTP for media, analysis, live-reload and export.</span></li>
-        </ul>
+    <div class="pg reveal" id="pg">
+      <div class="pg-bar" role="group" aria-label="Example edits">
+        <span class="pg-bar-label">Try an edit</span>
+        <button class="chip" type="button" data-edit="noir" aria-pressed="false" disabled>Film noir</button>
+        <button class="chip" type="button" data-edit="headline" aria-pressed="false" disabled>New headline</button>
+        <button class="chip" type="button" data-edit="neon" aria-pressed="false" disabled>Neon title</button>
+        <button class="chip" type="button" data-edit="caption" aria-pressed="false" disabled>Add a caption</button>
+        <button class="chip" type="button" data-edit="warm" aria-pressed="false" disabled>Warm grade</button>
+        <button class="pg-reset" type="button" id="pgReset" disabled><svg class="i" aria-hidden="true"><use href="#i-undo"/></svg>Reset</button>
       </div>
-      <div class="how-code reveal">
-        <div class="code-card">
-          <div class="code-top"><span class="dot-file">project.json</span></div>
-<pre><code>{
-  <span class="k">"fps"</span>: <span class="n">30</span>, <span class="k">"width"</span>: <span class="n">1080</span>, <span class="k">"height"</span>: <span class="n">1920</span>,
-  <span class="k">"clips"</span>: [
+      <div class="pg-body">
+        <div class="pg-code">
+          <div class="pg-file"><span>project.json</span><span class="pg-status" id="pgStatus" role="status" aria-live="polite"></span></div>
+          <div class="pg-edit">
+            <pre aria-hidden="true"><code id="pgBack"></code></pre>
+            <textarea id="pgJson" wrap="off" spellcheck="false" autocapitalize="off" autocomplete="off"
+              aria-label="The project document. Change a value and the editor beside it re-renders.">{
+  "name": "Playground reel",
+  "width": 1080,
+  "height": 1920,
+  "fps": 30,
+  "background": "#05050a",
+  "revision": 1,
+  "markers": [
     {
-      <span class="k">"kind"</span>: <span class="s">"video"</span>, <span class="k">"track"</span>: <span class="s">"V1"</span>,
-      <span class="k">"start"</span>: <span class="n">0</span>, <span class="k">"in"</span>: <span class="n">2.5</span>, <span class="k">"duration"</span>: <span class="n">3.4</span>,
-      <span class="k">"props"</span>: { <span class="k">"filterPreset"</span>: <span class="s">"teal-orange"</span> },
-      <span class="k">"keyframes"</span>: {
-        <span class="k">"scale"</span>: [{ <span class="k">"t"</span>: <span class="n">0</span>, <span class="k">"v"</span>: <span class="n">1</span> },
-                  { <span class="k">"t"</span>: <span class="n">3.4</span>, <span class="k">"v"</span>: <span class="n">1.18</span> }]
+      "t": 3.2,
+      "label": "cut"
+    },
+    {
+      "t": 6.4,
+      "label": "whip"
+    }
+  ],
+  "clips": [
+    {
+      "id": "v1",
+      "mediaId": "m_violet",
+      "kind": "video",
+      "track": "V1",
+      "name": "violet",
+      "start": 0,
+      "in": 0,
+      "duration": 3.4,
+      "props": {
+        "fit": "cover",
+        "volume": 0
+      },
+      "keyframes": {
+        "scale": [
+          {
+            "t": 0,
+            "v": 1
+          },
+          {
+            "t": 3.4,
+            "v": 1.12
+          }
+        ]
+      }
+    },
+    {
+      "id": "v2",
+      "mediaId": "m_amber",
+      "kind": "video",
+      "track": "V1",
+      "name": "amber",
+      "start": 3.2,
+      "in": 0,
+      "duration": 3.4,
+      "props": {
+        "fit": "cover",
+        "volume": 0,
+        "filterPreset": "cinematic"
+      },
+      "transitionIn": {
+        "type": "fade",
+        "duration": 0.4
+      }
+    },
+    {
+      "id": "v3",
+      "mediaId": "m_teal",
+      "kind": "video",
+      "track": "V1",
+      "name": "teal",
+      "start": 6.4,
+      "in": 0,
+      "duration": 3.2,
+      "props": {
+        "fit": "cover",
+        "volume": 0,
+        "vignette": 30
+      },
+      "transitionIn": {
+        "type": "whip",
+        "duration": 0.25
+      }
+    },
+    {
+      "id": "t1",
+      "kind": "text",
+      "track": "V2",
+      "name": "title",
+      "start": 0.4,
+      "duration": 2.8,
+      "props": {
+        "text": "EDIT THIS JSON",
+        "font": "Anton",
+        "fontSize": 128,
+        "color": "#ffffff",
+        "uppercase": true,
+        "textAnim": "word-pop",
+        "wordRate": 0.14,
+        "textShadow": 18,
+        "y": 420
+      }
+    },
+    {
+      "id": "t2",
+      "kind": "text",
+      "track": "V2",
+      "name": "kicker",
+      "start": 3.6,
+      "duration": 2.6,
+      "props": {
+        "text": "watch it happen",
+        "font": "Playfair Display",
+        "fontSize": 96,
+        "color": "#ffffff",
+        "color2": "#ffd24a",
+        "textAnim": "clip-reveal",
+        "y": -80
+      }
+    },
+    {
+      "id": "a1",
+      "mediaId": "m_pad",
+      "kind": "audio",
+      "track": "A1",
+      "name": "pad",
+      "start": 0,
+      "in": 0,
+      "duration": 9.6,
+      "props": {
+        "volume": 0.6
+      },
+      "transitionOut": {
+        "type": "fade",
+        "duration": 1.5
       }
     }
-  ]
-}</code></pre>
+  ],
+  "inPoint": null,
+  "outPoint": null
+}</textarea>
+          </div>
+        </div>
+        <div class="pg-view" id="pgView">
+          <p class="pg-wait">Loading the editor</p>
+          <iframe id="pgFrame" data-src="./demo/?embed=1&amp;view=monitor" title="The FableCut editor, running on this page" loading="lazy"></iframe>
         </div>
       </div>
+    </div>
+    <div class="pg-foot reveal">
+      <span>The real editor, running in your browser. Nothing is uploaded.</span>
+      <a class="more" href="./demo/">Open the full playground <svg class="i i-ne" aria-hidden="true"><use href="#i-ne"/></svg></a>
     </div>
   </div>
 </section>
 
-<!-- ── Kinetic marquee: the product's own look, in motion (one per page) ── -->
-<div class="marquee" aria-hidden="true">
-  <div class="marquee-track">
-    <span class="f-anton">teal-orange</span><i>&#9670;</i><span class="f-playfair">speed ramp</span><i>&#9670;</i><span class="f-bebas">chroma key</span><i>&#9670;</i><span class="f-abril">film grain</span><i>&#9670;</i><span class="f-oswald">whip-pan</span><i>&#9670;</i><span class="f-archivo">noir</span><i>&#9670;</i><span class="f-bebas">RGB split</span><i>&#9670;</i><span class="f-anton">glitch</span><i>&#9670;</i><span class="f-playfair">neon glow</span><i>&#9670;</i><span class="f-oswald">adjustment layers</span><i>&#9670;</i><span class="f-abril">keyframes</span><i>&#9670;</i><span class="f-bebas">cinematic</span><i>&#9670;</i>
-    <span class="f-anton">teal-orange</span><i>&#9670;</i><span class="f-playfair">speed ramp</span><i>&#9670;</i><span class="f-bebas">chroma key</span><i>&#9670;</i><span class="f-abril">film grain</span><i>&#9670;</i><span class="f-oswald">whip-pan</span><i>&#9670;</i><span class="f-archivo">noir</span><i>&#9670;</i><span class="f-bebas">RGB split</span><i>&#9670;</i><span class="f-anton">glitch</span><i>&#9670;</i><span class="f-playfair">neon glow</span><i>&#9670;</i><span class="f-oswald">adjustment layers</span><i>&#9670;</i><span class="f-abril">keyframes</span><i>&#9670;</i><span class="f-bebas">cinematic</span><i>&#9670;</i>
-  </div>
-</div>
-
-<!-- ── Mentions: what other people said, elsewhere ── -->
-<section class="section mentions" id="mentions">
-  <div class="wrap">
-    <div class="head mentions-head reveal zoom">
-      <span class="tick"></span>
-      <h2>Other people, talking about it.</h2>
-      <p class="sub">Creators, reviewers, registries and commenters. Every card below is someone else&rsquo;s words, not the maintainer&rsquo;s. Click any card to read the source.</p>
-    </div>
-
-    <div class="hn-badge reveal">
-      <span class="hn-badge-label">Show HN</span>
-      <a class="hn-badge-card" href="https://news.ycombinator.com/item?id=48845422" target="_blank" rel="noopener">
-        <span class="hn-badge-y" aria-hidden="true">Y</span>
-        <span class="hn-badge-text">
-          <b>Front page of Hacker News</b>
-          <i>98 points</i>
-        </span>
-      </a>
-    </div>
-
-    <div class="mgrid reveal" id="mgrid">
-
-      <a class="mention" href="https://www.youtube.com/shorts/DjNNV9vb62k" target="_blank" rel="noopener">
-        <span class="mthumb">
-          <img src="https://i.ytimg.com/vi/DjNNV9vb62k/hqdefault.jpg" alt="" loading="lazy" width="480" height="360">
-          <span class="mplay" aria-hidden="true"></span>
-        </span>
-        <span class="mrow"><b class="mplat">YouTube</b><i class="mstat">Short</i></span>
-        <p class="mquote">&ldquo;AI edits videos while you sleep. FableCut review.&rdquo;</p>
-        <p class="msrc">AI Flash</p>
-      </a>
-
-      <a class="mention" href="https://www.youtube.com/shorts/XttVPJiR2B0" target="_blank" rel="noopener">
-        <span class="mthumb">
-          <img src="https://i.ytimg.com/vi/XttVPJiR2B0/hqdefault.jpg" alt="" loading="lazy" width="480" height="360">
-          <span class="mplay" aria-hidden="true"></span>
-        </span>
-        <span class="mrow"><b class="mplat">YouTube</b><i class="mstat">Short</i></span>
-        <p class="mquote">&ldquo;FableCut: the AI video editor where the AI actually edits.&rdquo;</p>
-        <p class="msrc">Evgenii Arsentev</p>
-      </a>
-
-      <a class="mention" href="https://www.youtube.com/shorts/-qDuO9Floyo" target="_blank" rel="noopener">
-        <span class="mthumb">
-          <img src="https://i.ytimg.com/vi/-qDuO9Floyo/hqdefault.jpg" alt="" loading="lazy" width="480" height="360">
-          <span class="mplay" aria-hidden="true"></span>
-        </span>
-        <span class="mrow"><b class="mplat">YouTube</b><i class="mstat">Short</i></span>
-        <p class="mquote">&ldquo;AI&rsquo;s editing video? Meet FableCut!&rdquo;</p>
-        <p class="msrc">AI Override</p>
-      </a>
-
-      <a class="mention" href="https://x.com/QCXINT_/status/2075525663168115016" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-x"><span class="mword">X</span></span>
-        <span class="mrow"><b class="mplat">X</b><i class="mstat">3.3K views</i></span>
-        <p class="mquote">&ldquo;FableCut isn&rsquo;t trying to be another AI video editor. It&rsquo;s trying to become a video editor that AI agents can fully control.&rdquo;</p>
-        <p class="msrc">QCXINT</p>
-      </a><a class="mention" href="https://x.com/QingQ77/status/2077384184838909954" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-x"><span class="mword">X</span></span>
-        <span class="mrow"><b class="mplat">X</b><i class="mstat">1.7K views</i></span>
-        <p class="mquote">&ldquo;Open a video editor in the browser, where the entire timeline is a JSON file, letting AI agents like Claude edit it for you directly via MCP or REST.&rdquo;</p>
-        <p class="msrc">Geek Lite</p>
-      </a><a class="mention" href="https://x.com/kon_coder/status/2080412644498898998" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-x"><span class="mword">X</span></span>
-        <span class="mrow"><b class="mplat">X</b><i class="mstat">583 views</i></span>
-        <p class="mquote">&ldquo;&#12479;&#12452;&#12512;&#12521;&#12452;&#12531;&#20840;&#20307;&#12364;JSON&#12394;&#12398;&#12391;&#12289;AI&#12363;&#12425;&#19968;&#25324;&#32232;&#38598;&#12391;&#12365;&#12427;&#12290;&#32232;&#38598;&#32080;&#26524;&#12364;&#12502;&#12521;&#12454;&#12470;&#12408;&#21363;&#21453;&#26144;&#12373;&#12428;&#12427;&#12290;&rdquo;</p>
-        <p class="msrc">Yuuki Kon</p>
-      </a><a class="mention" href="https://x.com/SedraLab/status/2077710669235839413" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-x"><span class="mword">X</span></span>
-        <span class="mrow"><b class="mplat">X</b><i class="mstat">237 views</i></span>
-        <p class="mquote">&ldquo;Video kurguyu AI ajan&#305;na devret. Taray&#305;c&#305;nda. FableCut, s&#305;f&#305;r ba&#287;&#305;ml&#305;l&#305;kla &#231;al&#305;&#351;an a&#231;&#305;k kaynak bir video edit&#246;r&#252;.&rdquo;</p>
-        <p class="msrc">Sedra</p>
-      </a><a class="mention" href="https://x.com/weele_dev/status/2076549907603660932" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-x"><span class="mword">X</span></span>
-        <span class="mrow"><b class="mplat">X</b><i class="mstat">Public post</i></span>
-        <p class="mquote" dir="rtl" lang="ar">&ldquo;&#1605;&#1581;&#1585;&#1585; &#1601;&#1610;&#1583;&#1610;&#1608; &#1605;&#1601;&#1578;&#1608;&#1581; &#1575;&#1604;&#1605;&#1589;&#1583;&#1585; &#1575;&#1604;&#1604;&#1610; AI agents &#1578;&#1587;&#1608;&#1602;&#1607; &#1593;&#1576;&#1585; JSON. &#1603;&#1604; &#1575;&#1604;&#1578;&#1575;&#1610;&#1605;&#1604;&#1575;&#1610;&#1606; project.json.&rdquo;</p>
-        <p class="msrc">weele.dev</p>
-      </a><a class="mention" href="https://www.linkedin.com/feed/update/urn:li:activity:7482448475331354624/" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-li"><span class="mword">in</span></span>
-        <span class="mrow"><b class="mplat">LinkedIn</b><i class="mstat">21 reactions</i></span>
-        <p class="mquote">&ldquo;Across Daydream, FableCut, OpenCut, Palmier Pro, and Verlon, the same pattern is emerging. The human and the agent operate the same project.&rdquo;</p>
-        <p class="msrc">Olivier Legris</p>
-      </a>
-
-      <a class="mention" href="https://www.linkedin.com/posts/sriranga-tangella-71477a90_videoediting-agenticai-buildinpublic-activity-7480984621187457024-GQj9" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-li"><span class="mword">in</span></span>
-        <span class="mrow"><b class="mplat">LinkedIn</b><i class="mstat">Public post</i></span>
-        <p class="mquote">&ldquo;FableCut is a browser video editor that AI agents can drive, and it has zero npm dependencies.&rdquo;</p>
-        <p class="msrc">Sriranga Tangella</p>
-      </a><a class="mention" href="https://trendshift.io/repositories/77702" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-star"><span class="mword">Trend<br>shift</span></span>
-        <span class="mrow"><b class="mplat">Trending</b><i class="mstat">#8 daily</i></span>
-        <p class="mquote">Ranked #8 on the daily JavaScript trending list on 9 July 2026.</p>
-        <p class="msrc">Trendshift</p>
-      </a><a class="mention" href="https://kompozy.io/reviews/fablecut" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word"><span class="mword">Kompozy</span></span>
-        <span class="mrow"><b class="mplat">Review</b><i class="mstat">3.8 / 5</i></span>
-        <p class="mquote">&ldquo;The entire project, every clip and track and keyframe, is one project.json file, so anything that can write JSON can edit video.&rdquo;</p>
-        <p class="msrc">Moe Ameen &middot; Kompozy</p>
-      </a>
-
-      <a class="mention is-extra" href="https://kompozy.io/alternatives/fablecut" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word"><span class="mword">Kompozy</span></span>
-        <span class="mrow"><b class="mplat">Press</b><i class="mstat">Comparison</i></span>
-        <p class="mquote">&ldquo;A genuinely clever architecture: the whole timeline is one JSON file, so any agent that can write JSON can edit video.&rdquo;</p>
-        <p class="msrc">Kompozy</p>
-      </a>
-
-      <a class="mention is-extra" href="https://www.getreadyforagents.com/news/fablecut-browser-native-agentic-video-editor/" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word"><span class="mword">Agentic<br>Ready</span></span>
-        <span class="mrow"><b class="mplat">Press</b><i class="mstat">Feature</i></span>
-        <p class="mquote">&ldquo;An emerging pattern of browser-native agentic UIs enabling agents to drive creative and media workflows.&rdquo;</p>
-        <p class="msrc">Agentic Ready</p>
-      </a>
-
-      <a class="mention is-extra" href="https://www.everydev.ai/tools/fablecut" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word"><span class="mword">Every<br>Dev</span></span>
-        <span class="mrow"><b class="mplat">Directory</b><i class="mstat">Listed</i></span>
-        <p class="mquote">&ldquo;A zero-dependency browser-based non-linear video editor with a JSON timeline that AI agents can drive via MCP, REST, or direct file editing.&rdquo;</p>
-        <p class="msrc">EveryDev.ai</p>
-      </a>
-
-      <a class="mention is-extra" href="https://linkloot.io/loot/edit-agent-made-videos-through-a-json-timeline-with-fablecut" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word"><span class="mword">Link<br>Loot</span></span>
-        <span class="mrow"><b class="mplat">Press</b><i class="mstat">Pick</i></span>
-        <p class="mquote">&ldquo;Agents can work through MCP or REST instead of trying to click through a traditional nonlinear editor.&rdquo;</p>
-        <p class="msrc">LinkLoot</p>
-      </a>
-
-      <a class="mention is-extra" href="https://selfhostedworld.com/software/fablecut" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word"><span class="mword">Self<br>Hosted</span></span>
-        <span class="mrow"><b class="mplat">Directory</b><i class="mstat">Listed</i></span>
-        <p class="mquote">&ldquo;A browser-based video editor designed around a JSON project file rather than a hidden internal state.&rdquo;</p>
-        <p class="msrc">SelfHostedWorld</p>
-      </a>
-
-      <a class="mention is-extra" href="https://glama.ai/mcp/servers/@ronak-create/FableCut" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word is-mcp"><span class="mword">Glama</span></span>
-        <span class="mrow"><b class="mplat">Registry</b><i class="mstat">Indexed</i></span>
-        <p class="mquote">&ldquo;A browser video editor that AI agents can drive.&rdquo; Indexed under multimedia processing and agent orchestration.</p>
-        <p class="msrc">Glama</p>
-      </a>
-
-      <a class="mention is-extra" href="https://alternativeto.net/software/fablecut/" target="_blank" rel="noopener">
-        <span class="mthumb mthumb-word"><span class="mword">Alt<br>To</span></span>
-        <span class="mrow"><b class="mplat">Directory</b><i class="mstat">51 alts</i></span>
-        <p class="mquote">Tracked as a video editor in its own right, with 51 alternatives listed against it: Kdenlive, Shotcut, Avidemux.</p>
-        <p class="msrc">AlternativeTo</p>
-      </a>
-
-    </div>
-
-    <div class="mtoggle-row">
-      <button class="mtoggle" id="mToggle" aria-expanded="false" aria-controls="mgrid">Show all mentions</button>
-    </div>
-  </div>
-</section>
-
-<!-- ── Quick start ── -->
-<section class="section start" id="start">
-  <div class="wrap">
-    <div class="head start-head reveal zoom">
-      <span class="tick"></span>
-      <h2>Up and running in under a minute.</h2>
-      <p class="sub">Node 18+ and a Chromium browser. ffmpeg on PATH is optional but recommended for fast export.</p>
-    </div>
-    <div class="start-grid">
-      <div class="cmd-card reveal">
-        <h3>Run the editor</h3>
-        <div class="cmd">
-          <pre><code id="cmd1">git clone https://github.com/ronak-create/FableCut.git
-cd FableCut
-node server.js</code></pre>
-          <button class="copy" data-target="cmd1" aria-label="Copy commands">Copy</button>
-        </div>
-        <p class="cmd-note">Opens at <code>http://localhost:7777</code>.</p>
-      </div>
-      <div class="cmd-card reveal">
-        <h3>Let an agent drive it</h3>
-        <div class="cmd">
-          <pre><code id="cmd2">claude mcp add -s user fablecut -- \
-  node "/path/to/FableCut/mcp-server.js"</code></pre>
-          <button class="copy" data-target="cmd2" aria-label="Copy command">Copy</button>
-        </div>
-        <p class="cmd-note">Registers the MCP server for every Claude Code session. Full setup in the README.</p>
-      </div>
-    </div>
-    <div class="start-links reveal">
-      <a class="btn btn-ghost" href="https://github.com/ronak-create/FableCut/blob/main/CLAUDE.md" rel="noopener" target="_blank">Read the full manual</a>
-      <a class="btn btn-ghost" href="https://deepwiki.com/ronak-create/FableCut" rel="noopener" target="_blank">Browse the docs on DeepWiki</a>
-    </div>
-  </div>
-</section>
-
-<!-- ── Agents: the MCP server is client-neutral, so show the real setup line ── -->
-<section class="section agents" id="agents">
-  <div class="wrap">
-    <div class="head reveal zoom">
-      <span class="tick"></span>
+<section class="section" id="agents">
+  <div class="wrap split">
+    <div class="head reveal">
       <h2>Works with the agent you already use.</h2>
-      <p class="sub">The MCP server speaks plain stdio and asks for nothing vendor-specific, so any client that supports MCP can drive the timeline. Point these at your own checkout.</p>
+      <p>FableCut ships an MCP server over plain stdio, so any MCP client can read and rewrite your timeline. Claude Code and Claude Desktop install it in one step.</p>
+      <a class="more" href="./start/#connect">Full setup guide <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
     </div>
-    <div class="agent-grid reveal">
-      <div class="agent-card">
-        <div class="agent-head">
-          <h3 class="agent-name"><svg class="agent-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="m4.7144 15.9555 4.7174-2.6471.079-.2307-.079-.1275h-.2307l-.7893-.0486-2.6956-.0729-2.3375-.0971-2.2646-.1214-.5707-.1215-.5343-.7042.0546-.3522.4797-.3218.686.0608 1.5179.1032 2.2767.1578 1.6514.0972 2.4468.255h.3886l.0546-.1579-.1336-.0971-.1032-.0972L6.973 9.8356l-2.55-1.6879-1.3356-.9714-.7225-.4918-.3643-.4614-.1578-1.0078.6557-.7225.8803.0607.2246.0607.8925.686 1.9064 1.4754 2.4893 1.8336.3643.3035.1457-.1032.0182-.0728-.164-.2733-1.3539-2.4467-1.445-2.4893-.6435-1.032-.17-.6194c-.0607-.255-.1032-.4674-.1032-.7285L6.287.1335 6.6997 0l.9957.1336.419.3642.6192 1.4147 1.0018 2.2282 1.5543 3.0296.4553.8985.2429.8318.091.255h.1579v-.1457l.1275-1.706.2368-2.0947.2307-2.6957.0789-.7589.3764-.9107.7468-.4918.5828.2793.4797.686-.0668.4433-.2853 1.8517-.5586 2.9021-.3643 1.9429h.2125l.2429-.2429.9835-1.3053 1.6514-2.0643.7286-.8196.85-.9046.5464-.4311h1.0321l.759 1.1293-.34 1.1657-1.0625 1.3478-.8804 1.1414-1.2628 1.7-.7893 1.36.0729.1093.1882-.0183 2.8535-.607 1.5421-.2794 1.8396-.3157.8318.3886.091.3946-.3278.8075-1.967.4857-2.3072.4614-3.4364.8136-.0425.0304.0486.0607 1.5482.1457.6618.0364h1.621l3.0175.2247.7892.522.4736.6376-.079.4857-1.2142.6193-1.6393-.3886-3.825-.9107-1.3113-.3279h-.1822v.1093l1.0929 1.0686 2.0035 1.8092 2.5075 2.3314.1275.5768-.3218.4554-.34-.0486-2.2039-1.6575-.85-.7468-1.9246-1.621h-.1275v.17l.4432.6496 2.3436 3.5214.1214 1.0807-.17.3521-.6071.2125-.6679-.1214-1.3721-1.9246L14.38 17.959l-1.1414-1.9428-.1397.079-.674 7.2552-.3156.3703-.7286.2793-.6071-.4614-.3218-.7468.3218-1.4753.3886-1.9246.3157-1.53.2853-1.9004.17-.6314-.0121-.0425-.1397.0182-1.4328 1.9672-2.1796 2.9446-1.7243 1.8456-.4128.164-.7164-.3704.0667-.6618.4008-.5889 2.386-3.0357 1.4389-1.882.929-1.0868-.0062-.1579h-.0546l-6.3385 4.1164-1.1293.1457-.4857-.4554.0608-.7467.2307-.2429 1.9064-1.3114Z"/></svg><span>Claude Code</span></h3>
-          <button class="copy" data-target="cmd-claude" aria-label="Copy the Claude Code setup">Copy</button>
-        </div>
-        <div class="cmd"><pre><code id="cmd-claude">claude mcp add -s user fablecut -- \
-  node "/path/to/FableCut/mcp-server.js"</code></pre></div>
+    <div class="tabs reveal" data-tabs>
+      <div class="tablist" role="tablist" aria-label="MCP clients">
+        <span class="tab-ind" aria-hidden="true"></span>
+        <button class="tab" role="tab" id="t-claude" aria-controls="p-claude" aria-selected="true">Claude Code</button>
+        <button class="tab" role="tab" id="t-desktop" aria-controls="p-desktop" aria-selected="false" tabindex="-1">Claude Desktop</button>
+        <button class="tab" role="tab" id="t-codex" aria-controls="p-codex" aria-selected="false" tabindex="-1">Codex</button>
+        <button class="tab" role="tab" id="t-gemini" aria-controls="p-gemini" aria-selected="false" tabindex="-1">Gemini CLI</button>
+        <button class="tab" role="tab" id="t-cursor" aria-controls="p-cursor" aria-selected="false" tabindex="-1">Cursor</button>
+        <button class="tab" role="tab" id="t-opencode" aria-controls="p-opencode" aria-selected="false" tabindex="-1">opencode</button>
+        <button class="tab" role="tab" id="t-amp" aria-controls="p-amp" aria-selected="false" tabindex="-1">Amp</button>
       </div>
-      <div class="agent-card">
-        <div class="agent-head">
-          <h3 class="agent-name"><svg class="agent-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6l5 5-5 5M12.5 17H20"/></svg><span>Codex CLI</span></h3>
-          <button class="copy" data-target="cmd-codex" aria-label="Copy the Codex CLI setup">Copy</button>
-        </div>
-        <div class="cmd"><pre><code id="cmd-codex">codex mcp add fablecut -- \
-  node "/path/to/FableCut/mcp-server.js"</code></pre></div>
+      <div class="tabpanel code" role="tabpanel" id="p-claude" aria-labelledby="t-claude">
+<pre><code><span class="c">// In Claude Code. No path, no config.</span>
+/plugin marketplace add ronak-create/FableCut
+/plugin install fablecut@fablecut</code></pre>
+        <button class="copy" type="button" aria-label="Copy the Claude Code plugin commands"><svg class="i i-cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-ok" aria-hidden="true"><use href="#i-check"/></svg></button>
       </div>
-      <div class="agent-card">
-        <div class="agent-head">
-          <h3 class="agent-name"><svg class="agent-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3.81t3.81-2.55Q21.51 12 24 12q-2.49 0-4.68-.93a12.3 12.3 0 0 1-3.81-2.58 12.3 12.3 0 0 1-2.58-3.81Q12 2.49 12 0q0 2.49-.96 4.68-.93 2.19-2.55 3.81a12.3 12.3 0 0 1-3.81 2.58Q2.49 12 0 12q2.49 0 4.68.96 2.19.93 3.81 2.55t2.55 3.81"/></svg><span>Gemini CLI</span></h3>
-          <button class="copy" data-target="cmd-gemini" aria-label="Copy the Gemini CLI setup">Copy</button>
-        </div>
-        <div class="cmd"><pre><code id="cmd-gemini">gemini mcp add -s user fablecut \
-  node "/path/to/FableCut/mcp-server.js"</code></pre></div>
+      <div class="tabpanel dl" role="tabpanel" id="p-desktop" aria-labelledby="t-desktop" hidden>
+        <p>Download the bundle and open it. Claude Desktop installs the server for you, no path needed.</p>
+        <a class="btn btn-ghost" href="https://github.com/ronak-create/FableCut/releases/latest/download/fablecut.mcpb">Download fablecut.mcpb</a>
       </div>
-      <div class="agent-card">
-        <div class="agent-head">
-          <h3 class="agent-name"><svg class="agent-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 6l5 5-5 5M12.5 17H20"/></svg><span>Amp</span></h3>
-          <button class="copy" data-target="cmd-amp" aria-label="Copy the Amp setup">Copy</button>
-        </div>
-        <div class="cmd"><pre><code id="cmd-amp">amp mcp add fablecut -- \
-  node "/path/to/FableCut/mcp-server.js"</code></pre></div>
+      <div class="tabpanel code" role="tabpanel" id="p-codex" aria-labelledby="t-codex" hidden>
+<pre><code>codex mcp add fablecut -- \
+  node "/path/to/FableCut/mcp-server.js"</code></pre>
+        <button class="copy" type="button" aria-label="Copy the Codex setup"><svg class="i i-cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-ok" aria-hidden="true"><use href="#i-check"/></svg></button>
       </div>
-      <div class="agent-card">
-        <div class="agent-head">
-          <h3 class="agent-name"><svg class="agent-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M11.503.131 1.891 5.678a.84.84 0 0 0-.42.726v11.188c0 .3.162.575.42.724l9.609 5.55a1 1 0 0 0 .998 0l9.61-5.55a.84.84 0 0 0 .42-.724V6.404a.84.84 0 0 0-.42-.726L12.497.131a1.01 1.01 0 0 0-.996 0M2.657 6.338h18.55c.263 0 .43.287.297.515L12.23 22.918c-.062.107-.229.064-.229-.06V12.335a.59.59 0 0 0-.295-.51l-9.11-5.257c-.109-.063-.064-.23.061-.23"/></svg><span>Cursor CLI</span></h3>
-          <button class="copy" data-target="cmd-cursor" aria-label="Copy the Cursor CLI setup">Copy</button>
-        </div>
-        <div class="cmd"><pre><code id="cmd-cursor">// ~/.cursor/mcp.json
+      <div class="tabpanel code" role="tabpanel" id="p-gemini" aria-labelledby="t-gemini" hidden>
+<pre><code>gemini mcp add -s user fablecut \
+  node "/path/to/FableCut/mcp-server.js"</code></pre>
+        <button class="copy" type="button" aria-label="Copy the Gemini CLI setup"><svg class="i i-cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-ok" aria-hidden="true"><use href="#i-check"/></svg></button>
+      </div>
+      <div class="tabpanel code" role="tabpanel" id="p-cursor" aria-labelledby="t-cursor" hidden>
+<pre><code><span class="c">// ~/.cursor/mcp.json</span>
 {
   "mcpServers": {
     "fablecut": {
@@ -589,14 +378,11 @@ node server.js</code></pre>
       "args": ["/path/to/FableCut/mcp-server.js"]
     }
   }
-}</code></pre></div>
+}</code></pre>
+        <button class="copy" type="button" aria-label="Copy the Cursor setup"><svg class="i i-cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-ok" aria-hidden="true"><use href="#i-check"/></svg></button>
       </div>
-      <div class="agent-card">
-        <div class="agent-head">
-          <h3 class="agent-name"><svg class="agent-ico" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false"><path fill="currentColor" d="M22 24H2V0h20zM17 4.8H7v14.4h10z"/></svg><span>opencode</span></h3>
-          <button class="copy" data-target="cmd-opencode" aria-label="Copy the opencode setup">Copy</button>
-        </div>
-        <div class="cmd"><pre><code id="cmd-opencode">// opencode.json
+      <div class="tabpanel code" role="tabpanel" id="p-opencode" aria-labelledby="t-opencode" hidden>
+<pre><code><span class="c">// opencode.json</span>
 {
   "mcp": {
     "fablecut": {
@@ -605,109 +391,119 @@ node server.js</code></pre>
       "enabled": true
     }
   }
-}</code></pre></div>
+}</code></pre>
+        <button class="copy" type="button" aria-label="Copy the opencode setup"><svg class="i i-cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-ok" aria-hidden="true"><use href="#i-check"/></svg></button>
+      </div>
+      <div class="tabpanel code" role="tabpanel" id="p-amp" aria-labelledby="t-amp" hidden>
+<pre><code>amp mcp add fablecut -- \
+  node "/path/to/FableCut/mcp-server.js"</code></pre>
+        <button class="copy" type="button" aria-label="Copy the Amp setup"><svg class="i i-cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-ok" aria-hidden="true"><use href="#i-check"/></svg></button>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ── FAQ: plain answers to the questions people actually type ── -->
-<section class="section faq" id="faq">
+<section class="section" id="mentions" aria-labelledby="mentionsTitle">
   <div class="wrap">
-    <div class="head reveal zoom">
-      <span class="tick"></span>
-      <h2>Questions people ask first.</h2>
+    <h2 class="sr" id="mentionsTitle">What people are saying</h2>
+    <div class="proof">
+      <a class="q-big reveal" href="https://x.com/QCXINT_/status/2075525663168115016" target="_blank" rel="noopener">
+        <blockquote>&ldquo;FableCut isn&rsquo;t trying to be another AI video editor. It&rsquo;s trying to become a video editor that AI agents can fully control.&rdquo;</blockquote>
+        <span class="q-by"><b>QCXINT</b>, on X</span>
+      </a>
+      <div class="q-list reveal">
+        <a class="q-sm" href="https://kompozy.io/alternatives/fablecut" target="_blank" rel="noopener">
+          <blockquote>&ldquo;A genuinely clever architecture: the whole timeline is one JSON file, so any agent that can write JSON can edit video.&rdquo;</blockquote>
+          <span class="q-by"><b>Kompozy</b>, review</span>
+        </a>
+        <a class="q-sm" href="https://www.youtube.com/shorts/XttVPJiR2B0" target="_blank" rel="noopener">
+          <blockquote>&ldquo;The AI video editor where the AI actually edits.&rdquo;</blockquote>
+          <span class="q-by"><b>Evgenii Arsentev</b>, on YouTube</span>
+        </a>
+      </div>
     </div>
-    <div class="bento faq-grid reveal">
-      <div class="cell cell-wide">
-        <h3>Can an AI actually edit video?</h3>
-        <p>Yes, and you get to watch it happen. Your whole edit lives in one file called <code>project.json</code>: the clips, the tracks, the effects, every keyframe. An agent rewrites that file the same way it writes code, and the open editor picks up the change in about 150 milliseconds. Nothing is hidden behind a render API you cannot see into.</p>
-      </div>
-      <div class="cell">
-        <h3>What is an MCP video editor?</h3>
-        <p>MCP is the Model Context Protocol, the standard way an AI client talks to outside tools. FableCut ships an MCP server, so Claude Code, Claude Desktop or any other MCP client gets real typed tools for reading and rewriting your timeline instead of guessing at it.</p>
-      </div>
-      <div class="cell">
-        <h3>Do I need ffmpeg?</h3>
-        <p>Only if you want the fast export. Put ffmpeg on your PATH and exports run through it. Skip it and the editor records the timeline in the browser instead. Everything else, preview and trimming and effects and titles, works fine without it.</p>
-      </div>
-      <div class="cell cell-wide">
-        <h3>Does my footage get uploaded anywhere?</h3>
-        <p>No. The server runs on your own machine and listens on 127.0.0.1 only, so your media sits in a local folder and never goes near anyone's cloud. Two things do touch the network, and both are your call: the <strong>+ URL</strong> button downloads a file you paste in, and AI background removal fetches its model from a CDN the first time you use it.</p>
-      </div>
-      <div class="cell">
-        <h3>Is FableCut free?</h3>
-        <p>Yes. MIT licensed, free for personal and commercial work, with no account, no telemetry and no paid tier waiting for you later. It also has zero npm dependencies, so <code>node server.js</code> really is the whole install.</p>
-      </div>
-      <div class="cell cell-wide">
-        <h3>What do I need to run it?</h3>
-        <p>Node 18 or newer and a Chromium browser. Clone the repo, run <code>node server.js</code>, open <code>http://localhost:7777</code>. It works on Windows, macOS and Linux, and if you would rather not deal with paths at all, it installs as a Claude Code plugin.</p>
-      </div>
+    <div class="proof-foot reveal">
+      <a class="hn" href="https://news.ycombinator.com/item?id=48845422" target="_blank" rel="noopener">
+        <span class="hn-y" aria-hidden="true">Y</span><span><b>Front page of Hacker News</b>, 98 points</span>
+      </a>
+      <a class="more" href="./community/">See all mentions <svg class="i" aria-hidden="true"><use href="#i-arrow"/></svg></a>
     </div>
   </div>
 </section>
 
-<!-- ── Live status ── -->
-<section class="section status" id="status">
-  <div class="wrap">
-    <div class="status-card reveal" id="statusCard">
-      <div class="status-main">
-        <h2 id="relTag">Latest release</h2>
-        <p class="sub" id="relMeta">Fetching the newest version from GitHub.</p>
-      </div>
-      <div class="status-links">
-        <a id="relLink" href="https://github.com/ronak-create/FableCut/releases" rel="noopener" target="_blank">Release notes</a>
-        <a href="https://github.com/ronak-create/FableCut/blob/main/CHANGELOG.md" rel="noopener" target="_blank">Changelog</a>
-      </div>
-    </div>
-  </div>
-</section>
-<!-- ── Sponsor ── -->
-<section class="section sponsor" id="sponsor">
-  <style>
-    .sponsor-card{display:block;max-width:900px;margin:0 auto;border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.12)}
-    .sponsor-card img{display:block;width:100%;height:auto}
-    .sponsor-note{max-width:640px;margin:20px auto 0;text-align:center}
-  </style>
-  <div class="wrap">
-    <div class="head reveal zoom">
-      <span class="tick"></span>
-      <h2>Sponsor</h2>
-    </div>
-    <a class="sponsor-card reveal" href="https://fluxionai.world/register?source=github&amp;campaign=github-fablecut&amp;promo=FABLECUT" rel="noopener sponsored" target="_blank">
-      <img src="./sponsors/fluxion-ai-banner.png" alt="Fluxion AI — unified access to GPT, Claude and other leading AI models" width="1200" height="360">
+<section class="section" id="sponsor" aria-labelledby="sponsorTitle">
+  <div class="wrap sponsor reveal">
+    <a class="sponsor-art" href="https://fluxionai.world/register?source=github&amp;campaign=github-fablecut&amp;promo=FABLECUT" rel="noopener sponsored" target="_blank">
+      <img src="./sponsors/fluxion-ai-banner.png" width="1200" height="360" loading="lazy" decoding="async"
+           alt="Fluxion AI: unified access to GPT, Claude and other leading AI models">
     </a>
-    <p class="sub sponsor-note">
-      <a href="https://fluxionai.world/register?source=github&amp;campaign=github-fablecut&amp;promo=FABLECUT" rel="noopener sponsored" target="_blank"><strong>Fluxion AI</strong></a>
-      provides reliable, cost-efficient access to GPT, Claude, and other leading AI models through one unified API. Save up to 70% compared with official API pricing, and get $3 in API credits signing in through this link.
-    </p>
+    <div>
+      <p class="sponsor-k">Sponsor</p>
+      <h3 id="sponsorTitle">Fluxion AI</h3>
+      <p>Fluxion AI provides reliable, cost-efficient access to GPT, Claude, and other leading AI models through one unified API. Save up to 70% compared with official API pricing, and get $3 in API credits signing in through this link.</p>
+      <a class="more" href="https://fluxionai.world/register?source=github&amp;campaign=github-fablecut&amp;promo=FABLECUT" rel="noopener sponsored" target="_blank">fluxionai.world <svg class="i i-ne" aria-hidden="true"><use href="#i-ne"/></svg></a>
+    </div>
   </div>
 </section>
+
+<section class="section" id="start">
+  <div class="wrap cta">
+    <div class="reveal">
+      <h2 class="h2">Up and running in under a minute.</h2>
+      <p class="lead">Node 18 or newer and a Chromium browser. ffmpeg is optional, for fast export.</p>
+      <div class="btns">
+        <a class="btn btn-primary" href="./start/">Get started</a>
+        <a class="more" href="https://github.com/ronak-create/FableCut/blob/main/CLAUDE.md" rel="noopener" target="_blank">Read the manual <svg class="i i-ne" aria-hidden="true"><use href="#i-ne"/></svg></a>
+      </div>
+    </div>
+    <div class="reveal">
+      <div class="code code-card">
+<pre><code>git clone https://github.com/ronak-create/FableCut
+cd FableCut
+node server.js</code></pre>
+        <button class="copy" type="button" aria-label="Copy the install commands"><svg class="i i-cp" aria-hidden="true"><use href="#i-copy"/></svg><svg class="i i-ok" aria-hidden="true"><use href="#i-check"/></svg></button>
+      </div>
+      <p class="cta-note">Then open <code class="ic">localhost:7777</code>. MIT licensed, zero npm dependencies.</p>
+    </div>
+  </div>
+</section>
+
 </main>
 
-<!-- ── Footer ── -->
 <footer class="footer">
-  <div class="wrap foot-inner">
-    <div class="foot-brand">
-      <svg viewBox="0 0 512 512" width="22" height="22" aria-hidden="true">
-        <rect width="512" height="512" rx="112" fill="url(#ng)"/>
-        <g fill="#fff"><path d="M188 146 L244 176 L244 336 L188 366 Z"/><path d="M268 189 L392 256 L268 323 Z"/></g>
-      </svg>
-      <span>FableCut</span>
+  <div class="wrap">
+    <div class="foot">
+      <a class="brand" href="./" aria-label="FableCut home"><svg aria-hidden="true"><use href="#i-logo"/></svg><span>FableCut</span></a>
+      <nav class="foot-links" aria-label="Footer">
+        <a href="https://github.com/ronak-create/FableCut" rel="noopener" target="_blank">GitHub</a>
+        <a href="https://deepwiki.com/ronak-create/FableCut" rel="noopener" target="_blank">Docs</a>
+        <a href="https://discord.gg/EFMQH7d6Tv" rel="noopener" target="_blank">Discord</a>
+        <a href="https://github.com/ronak-create/FableCut/releases" rel="noopener" target="_blank">Releases</a>
+        <a href="https://github.com/ronak-create/FableCut/blob/main/SECURITY.md" rel="noopener" target="_blank">Security</a>
+        <a href="https://github.com/ronak-create/FableCut/blob/main/LICENSE" rel="noopener" target="_blank">MIT License</a>
+      </nav>
+      <div class="foot-end">
+        <button class="theme-btn" type="button" data-theme-toggle aria-label="Switch color theme"><svg class="i i-sun" aria-hidden="true"><use href="#i-sun"/></svg><svg class="i i-moon" aria-hidden="true"><use href="#i-moon"/></svg></button>
+      </div>
     </div>
-    <nav class="foot-links" aria-label="Footer">
-      <a href="https://github.com/ronak-create/FableCut" rel="noopener" target="_blank">GitHub</a>
-      <a href="https://deepwiki.com/ronak-create/FableCut" rel="noopener" target="_blank">Docs</a>
-      <a href="https://discord.gg/EFMQH7d6Tv" rel="noopener" target="_blank">Discord</a>
-      <a href="https://github.com/ronak-create/FableCut/issues" rel="noopener" target="_blank">Issues</a>
-      <a href="https://news.ycombinator.com/item?id=48845422" rel="noopener" target="_blank">Show HN</a>
-      <a href="https://github.com/ronak-create/FableCut/blob/main/SECURITY.md" rel="noopener" target="_blank">Security</a>
-      <a href="https://github.com/ronak-create/FableCut/blob/main/LICENSE" rel="noopener" target="_blank">MIT License</a>
-    </nav>
+    <p class="fine">Built in the browser. Drivable by any agent that speaks JSON.</p>
   </div>
-  <p class="foot-fine">Built in the browser. Drivable by any agent that speaks JSON.</p>
 </footer>
 
-<script src="./main.js?v=12"></script>
+<dialog class="demo-dlg" id="demoDlg" aria-label="FableCut demo reel">
+  <div class="demo-box">
+    <video controls playsinline preload="none" poster="./screenshot.png"
+           data-src="https://github.com/ronak-create/FableCut/releases/download/v1.3.0/fablecut-demo.mp4">
+      Your browser cannot play this video.
+      <a href="https://github.com/ronak-create/FableCut/releases/tag/v1.3.0" rel="noopener" target="_blank">Download the demo reel</a>.
+    </video>
+  </div>
+  <div class="demo-cap">
+    <span>Edited by an agent, locally, live. Music: Digital Lemonade by Kevin MacLeod, CC BY 4.0.</span>
+    <button class="demo-close" type="button" data-close><svg class="i" aria-hidden="true"><use href="#i-x"/></svg>Close</button>
+  </div>
+</dialog>
+
+<script src="./main.js?v=20"></script>
 </body>
 </html>
