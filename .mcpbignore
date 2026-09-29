@@ -20,6 +20,13 @@ library/sfx/
 out/
 SUGGESTIONS.md
 
+# The landing page (served by GitHub Pages, never by the editor), the test
+# suite, and the MCP registry entry, which describes this bundle and would only
+# carry a stale sha256 of it
+docs/
+test/
+server.json
+
 # Repo & CI plumbing that a bundle has no use for
 .git/
 .github/
