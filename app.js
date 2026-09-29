@@ -2418,7 +2418,7 @@ function punchTrackRange(trackId, t0, t1) {
   }
 }
 /** Premiere-style Insert: place Source In→Out at the timeline playhead and
- *  ripple later clips on enabled tracks. Splits straddling clips on those
+ *  ripple later clips on targeted tracks. Splits straddling clips on those
  *  tracks first (linked partners split too). */
 function insertSourceAtPlayhead() {
   const win = sourceInsertWindow();
@@ -2534,7 +2534,7 @@ function applySourceWindowToClip(c, win) {
   }
   if (Math.abs(delta) > 1e-6) {
     const eps = 1e-6;
-    // Sync lock: linked partners ride along even on disabled tracks.
+    // Sync lock: linked partners ride along even on untargeted tracks.
     const movers = withoutLocked(withLinked(project.clips.filter((x) =>
       !groupIds.has(x.id) && tracks.has(x.track) && isEditTarget(x.track) && x.start >= oldEnd - eps
     )));
@@ -2845,7 +2845,7 @@ function deleteSelected() {
   setSelection([]);
   scheduleSave(); renderInspector();
 }
-/** Delete selection and pull later clips left on enabled tracks (per-track ripple). */
+/** Delete selection and pull later clips left on targeted tracks (per-track ripple). */
 function rippleDeleteSelected() {
   const picked = withLinked(selectedClips());
   const doomed = withoutLocked(picked);
@@ -2880,7 +2880,7 @@ function rippleDeleteSelected() {
     return d;
   };
   // Sync lock: a linked group shifts ONCE by the union of its member tracks'
-  // ranges (partners on disabled tracks ride along) — never once per track.
+  // ranges (partners on untargeted tracks ride along) — never once per track.
   // Unlinked clips use their own track's ranges.
   const grouped = new Map(), groups = [], solo = [];
   for (const c of project.clips) {
@@ -4062,7 +4062,7 @@ function keyframeTimelineTimes(clips) {
   out.sort((a, b) => a - b);
   return out;
 }
-/** Clip In/Out times used as edit points. Selection wins; otherwise enabled tracks. */
+/** Clip In/Out times used as edit points. Selection wins; otherwise targeted tracks. */
 function editPointTimes() {
   const clips = state.selIds.size
     ? selectedClips()
