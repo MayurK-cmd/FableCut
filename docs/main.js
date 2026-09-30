@@ -193,6 +193,127 @@
     });
   })();
 
+  /* ── Hero: an agent cuts a teaser, on a loop ──
+     One clock drives it all. frame(t) works out the whole picture for second
+     t of the loop (which edits have landed, where the playhead is, what the
+     monitor shows), so looping is just t going back to 0. Reduced motion
+     keeps the finished frame the HTML already describes. */
+  (function () {
+    var root = document.getElementById("cut");
+    if (!root || reduced) return;
+    var LOOP = 15, TL = 10, FPS = 30;
+    var T = { typeFrom: 0.5, typeTo: 1.8, glideFrom: 4.7, glideTo: 5.2, park: 1.4, noir: 6, playFrom: 7, playTo: 12.6, out: 14.3 };
+
+    var $ = function (s) { return root.querySelector(s); };
+    var clips = [].map.call(root.querySelectorAll("[data-clip]"), function (el) {
+      return {
+        id: el.getAttribute("data-clip"), el: el, at: +el.getAttribute("data-at"),
+        s: parseFloat(el.style.getPropertyValue("--s")), d: parseFloat(el.style.getPropertyValue("--d"))
+      };
+    });
+    var byId = {};
+    clips.forEach(function (c) { byId[c.id] = c; });
+    var video = ["v1", "v2", "v3"].map(function (id) { return byId[id]; });
+    var plates = {};
+    [].forEach.call(root.querySelectorAll("[data-plate]"), function (el) { plates[el.getAttribute("data-plate")] = el; });
+    var rows = [].map.call(root.querySelectorAll(".cut-log li"), function (li) {
+      return { el: li, at: +li.getAttribute("data-at"), text: [].map.call(li.children, function (c) { return c.textContent; }).join(" ") };
+    });
+    var prompt = $("[data-cut-prompt]"), PROMPT = prompt.textContent;
+    var title = $("[data-cut-title]"), ph = $("[data-cut-ph]");
+    var tc = $("[data-cut-tc]"), rev = $("[data-cut-rev]"), tick = $("[data-cut-tick]");
+
+    function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+    function smooth(x) { x = clamp01(x); return x * x * (3 - 2 * x); }
+    /* timeline seconds under the playhead at second t of the loop */
+    function head(t) {
+      if (t < T.glideFrom) return 0;
+      if (t < T.playFrom) return T.park * smooth((t - T.glideFrom) / (T.glideTo - T.glideFrom));
+      return T.park + (9.6 - T.park) * clamp01((t - T.playFrom) / (T.playTo - T.playFrom));
+    }
+    function timecode(s) {
+      var f = Math.round(s * FPS), two = function (n) { return (n < 10 ? "0" : "") + n; };
+      return "00:00:" + two(Math.floor(f / FPS)) + ":" + two(f % FPS);
+    }
+
+    var last = {};
+    function put(key, val, fn) { if (last[key] !== val) { last[key] = val; fn(val); } }
+
+    function frame(t) {
+      clips.forEach(function (c) {
+        put("c" + c.id, t >= c.at, function (on) { c.el.classList.toggle("on", on); });
+      });
+      var n = 0;
+      rows.forEach(function (r, k) {
+        var on = t >= r.at;
+        if (on) n = k + 1;
+        put("r" + k, on, function (v) { r.el.classList.toggle("on", v); });
+      });
+      put("rev", "rev " + (1 + Math.min(n, rows.length - 1)), function (v) { rev.textContent = v; });
+      put("tick", n ? rows[n - 1].text : "", function (v) { tick.textContent = v; });
+
+      var typed = Math.round(PROMPT.length * clamp01((t - T.typeFrom) / (T.typeTo - T.typeFrom)));
+      put("prompt", typed, function (c) { prompt.textContent = PROMPT.slice(0, c); });
+      put("typing", t >= T.typeFrom - 0.2 && t < T.typeTo + 0.4, function (on) { root.classList.toggle("typing", on); });
+      put("noir", t >= T.noir, function (on) { root.classList.toggle("noir", on); });
+      put("out", t >= T.out || t < 0.3, function (on) { root.classList.toggle("out", on); });
+
+      var h = head(t);
+      put("ph", (h / TL).toFixed(4), function (v) { ph.style.setProperty("--ph", v); });
+      put("tc", timecode(h), function (v) { tc.textContent = v; });
+
+      // the monitor: whichever V1 clip is under the playhead; where two
+      // overlap, the later one fades in over the first 0.2 s
+      var under = [];
+      video.forEach(function (c) { if (t >= c.at && h >= c.s && h < c.s + c.d) under.push(c); });
+      video.forEach(function (c) {
+        var k = under.indexOf(c), o = 0;
+        if (k === 0) o = 1;
+        else if (k > 0) o = smooth((h - c.s) / 0.2);
+        put("p" + c.id, o.toFixed(2), function (v) { plates[c.id].style.opacity = v; });
+      });
+      var t1 = byId.t1;
+      put("title", t >= t1.at && h >= t1.s && h < t1.s + t1.d, function (on) { title.classList.toggle("on", on); });
+    }
+
+    root.classList.add("live", "snap");
+    frame(0);
+    void root.offsetWidth;
+    root.classList.remove("snap");
+
+    var t0 = null, prev = 0, raf = 0, running = false, begun = false;
+    function step(now) {
+      raf = requestAnimationFrame(step);
+      // the first pass waits for the hero to rise in; a resume carries on
+      if (t0 == null) { t0 = now - prev * 1000 + (begun ? 0 : 1100); begun = true; }
+      var t = Math.max(0, (now - t0) / 1000) % LOOP;
+      if (t < prev - 0.001) {   // wrapped: reset in one untransitioned frame, while faded out
+        root.classList.add("snap");
+        frame(t);
+        void root.offsetWidth;
+        root.classList.remove("snap");
+      } else {
+        frame(t);
+      }
+      prev = t;
+    }
+    function run(on) {
+      if (on === running) return;
+      running = on;
+      if (on) { t0 = null; raf = requestAnimationFrame(step); }
+      else cancelAnimationFrame(raf);
+    }
+    var seen = true;
+    if ("IntersectionObserver" in window) {
+      new IntersectionObserver(function (entries) {
+        seen = entries[0].isIntersecting;
+        run(seen && !document.hidden);
+      }).observe(root);
+    }
+    document.addEventListener("visibilitychange", function () { run(seen && !document.hidden); });
+    run(!document.hidden);
+  })();
+
   /* ── Docs: the small-screen page menu, and the "On this page" list
      following the reader down the page ── */
   (function () {

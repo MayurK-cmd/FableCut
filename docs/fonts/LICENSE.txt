@@ -4,6 +4,8 @@ any project, including commercial use, provided this notice is retained.
 
 - Geist       - https://github.com/vercel/geist-font (Copyright 2024 The Geist Project Authors)
 - Geist Mono  - https://github.com/vercel/geist-font (Copyright 2024 The Geist Project Authors)
+- Anton       - https://github.com/googlefonts/AntonFont (Copyright 2020 The Anton Project Authors)
 
 The files are the Google Fonts latin and latin-ext subsets
-(https://fonts.google.com/specimen/Geist, https://fonts.google.com/specimen/Geist+Mono).
+(https://fonts.google.com/specimen/Geist, https://fonts.google.com/specimen/Geist+Mono,
+https://fonts.google.com/specimen/Anton).
