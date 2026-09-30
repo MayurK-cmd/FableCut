@@ -418,6 +418,21 @@ body.track-size-s .clip.selected {
   align-items: center;
 }
 
+/* Media bin: the add buttons share one row, no heading beside them. */
+.panel-head-actions.bin-actions {
+  flex: 1;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+
+.panel-head-actions.bin-actions .btn {
+  flex: 1;
+  min-width: 0;
+  justify-content: center;
+  text-align: center;
+  white-space: nowrap;
+}
+
 .upper {
   display: grid;
   grid-template-columns: var(--side-panel-w) minmax(0, 1fr) var(--side-panel-w);
@@ -702,6 +717,81 @@ body.track-size-s .clip.selected {
 }
 
 /* ── Monitor ── */
+.monitor-mode {
+  display: inline-flex;
+  gap: 2px;
+  text-transform: none;
+  letter-spacing: normal;
+}
+.monitor-mode .btn {
+  min-width: 4.2em;
+  font-weight: 700;
+}
+.monitor-mode .btn.on {
+  background: #7b6cff;
+  border-color: #9a8fff;
+  color: #fff;
+}
+.monitor-clip-name {
+  max-width: 18em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: normal;
+  font-size: 11px;
+}
+.panel.monitor[data-mode="source"] .monitor-clip-name:empty::before {
+  content: "No clip loaded";
+  opacity: .55;
+}
+
+.source-scrub {
+  flex: 0 0 auto;
+  padding: 0 14px 6px;
+}
+.source-scrub-track {
+  position: relative;
+  height: 10px;
+  border-radius: 5px;
+  background: #1a1a20;
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+.source-scrub-range {
+  position: absolute;
+  top: 0; bottom: 0;
+  left: 0; width: 0;
+  background: #7b6cff44;
+  border-radius: 4px;
+  pointer-events: none;
+  will-change: transform, width;
+}
+.source-scrub-mark {
+  position: absolute;
+  top: -2px; bottom: -2px;
+  left: 0;
+  width: 2px;
+  margin-left: -1px;
+  background: #ffd166;
+  pointer-events: none;
+  will-change: transform;
+}
+.source-scrub-mark.out { background: #ff8a65; }
+.source-scrub-head {
+  position: absolute;
+  top: -3px; bottom: -3px;
+  left: 0;
+  width: 3px;
+  margin-left: -1.5px;
+  background: #fff;
+  border-radius: 1px;
+  pointer-events: none;
+  box-shadow: 0 0 0 1px #0008;
+  will-change: transform;
+}
+
 .monitor-stage {
   flex: 1;
   display: flex;
@@ -712,6 +802,24 @@ body.track-size-s .clip.selected {
   border-radius: 6px;
   overflow: hidden;
   position: relative;
+}
+@keyframes monitor-flash-border {
+  0%   { opacity: 0; }
+  20%  { opacity: 1; }
+  70%  { opacity: 1; }
+  100% { opacity: 0; }
+}
+/* White ring painted over the preview canvas */
+.monitor-flash-ring {
+  position: absolute;
+  z-index: 30;
+  pointer-events: none;
+  box-shadow: inset 0 0 0 3px #fff;
+  opacity: 0;
+  border-radius: 0;
+}
+.monitor-flash-ring.on {
+  animation: monitor-flash-border 0.35s ease-out forwards;
 }
 
 .monitor-scroll {
@@ -784,6 +892,7 @@ body.track-size-s .clip.selected {
   pointer-events: none;
 }
 .kf-graphs[hidden] { display: none; }
+.kf-graphs.source-hidden { display: none !important; }
 .kf-graph {
   pointer-events: auto;
   flex: 0 0 auto;
@@ -856,6 +965,7 @@ body.track-size-s .clip.selected {
   padding: 5px 2px 4px 5px;
   background: #000a;
   user-select: none;
+  transform-origin: bottom right;
 }
 .vu-channels {
   display: flex;
@@ -1124,6 +1234,35 @@ body.track-size-s .clip.selected {
   gap: 4px;
 }
 
+.transport-end {
+  display: flex;
+  align-items: center;
+  justify-self: end;
+  gap: 10px;
+  min-width: 0;
+}
+
+.transport-end .btn.icon {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 0;
+}
+
+.transport-end .btn.icon svg {
+  display: block;
+  flex-shrink: 0;
+}
+
+.transport-end .btn.icon:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 .transport-btns .btn.icon {
   width: 26px;
   height: 26px;
@@ -1233,6 +1372,51 @@ body.track-size-s .clip.selected {
   text-align: center;
   color: var(--dim);
   padding-top: 40px;
+}
+
+/* Enable / lock / link toggles at the top of the inspector. */
+.clip-flags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.clip-flag {
+  flex: 1;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--panel-2);
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.clip-flag:hover {
+  color: #fff;
+}
+
+.clip-flag.on[data-clip-cmd="disable"] {
+  color: #ffd0d1;
+  background: #e5484d2e;
+  border-color: #e5484d88;
+}
+
+.clip-flag.on[data-clip-cmd="lock"] {
+  color: #111;
+  background: #ffb454;
+  border-color: #ffb454;
+}
+
+.clip-flag.on[data-clip-cmd="link"] {
+  color: #e8e8ff;
+  background: #7b6cff33;
+  border-color: #7b6cff88;
+}
+
+#inspector.locked .insp-section {
+  opacity: .6;
 }
 
 .insp-multi {
@@ -1421,7 +1605,7 @@ input[type=range] {
 }
 
 .track-headers {
-  width: 68px;
+  width: 86px;
   flex: none;
   border-right: 1px solid var(--border);
   padding-top: 0;
@@ -1469,10 +1653,74 @@ input[type=range] {
   letter-spacing: .5px;
 }
 
+/* The track name doubles as the targeting toggle (Premiere's blue patch):
+   lit = edits touch this lane. */
 .track-head .track-id {
   flex: 1;
   min-width: 0;
-  max-width: 3ch;
+  max-width: 4ch;
+  margin: 0;
+  padding: 1px 3px;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.track-head .track-id:hover {
+  color: #fff;
+  background: #ffffff12;
+}
+
+.track-head .track-id[aria-pressed="true"] {
+  color: #e8e8ff;
+  background: #7b6cff33;
+  border-color: #7b6cff88;
+}
+
+.track-head .track-id[aria-pressed="true"]:hover {
+  background: #7b6cff4d;
+}
+
+.track-lock {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dim);
+  opacity: .55;
+  cursor: pointer;
+}
+
+.track-lock .track-ico {
+  display: block;
+  width: 11px;
+  height: 11px;
+  pointer-events: none;
+}
+
+.track-lock:hover {
+  color: #fff;
+  opacity: 1;
+  background: #ffffff12;
+}
+
+.track-lock.on {
+  color: #111;
+  opacity: 1;
+  background: #ffb454;
+  border-color: #ffb454;
 }
 
 .track-solo {
@@ -1527,7 +1775,9 @@ input[type=range] {
 }
 
 .ctx-menu .ctx-item {
-  display: block;
+  display: flex;
+  justify-content: space-between;
+  gap: 18px;
   width: 100%;
   margin: 0;
   padding: 6px 10px;
@@ -1548,6 +1798,12 @@ input[type=range] {
 .ctx-menu .ctx-item:disabled {
   opacity: .45;
   cursor: default;
+}
+
+.ctx-menu .ctx-item kbd {
+  color: var(--dim);
+  font: inherit;
+  font-size: 11px;
 }
 
 .track-toggle {
@@ -1591,8 +1847,109 @@ input[type=range] {
   opacity: .4;
 }
 
+/* Edit-tool picker in the timeline toolbar. */
+.tool-seg {
+  display: inline-flex;
+  gap: 0;
+  margin-right: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.tool-seg .btn {
+  border: 0;
+  border-radius: 0;
+  padding: 3px 7px;
+}
+
+.tool-seg .btn + .btn {
+  border-left: 1px solid var(--border);
+}
+
+.tool-seg .btn.on {
+  color: #fff;
+  background: #7b6cff55;
+}
+
+.tool-seg .ico {
+  display: block;
+}
+
+/* Cursors say what a drag will do with the active tool. */
+#tracksContent[data-tool="ripple"] .clip .handle.l { cursor: w-resize; }
+#tracksContent[data-tool="ripple"] .clip .handle.r { cursor: e-resize; }
+#tracksContent[data-tool="roll"] .clip .handle { cursor: col-resize; }
+#tracksContent[data-tool="slip"] .clip,
+#tracksContent[data-tool="slip"] .clip .handle { cursor: ew-resize; }
+#tracksContent[data-tool="slide"] .clip,
+#tracksContent[data-tool="slide"] .clip .handle { cursor: move; }
+#tracksContent[data-tool="ripple"] .clip .handle,
+#tracksContent[data-tool="roll"] .clip .handle {
+  background: #ffd16655;
+}
+
+.trim-readout {
+  position: fixed;
+  z-index: 10001;
+  padding: 3px 7px;
+  border-radius: 4px;
+  background: #000c;
+  color: #fff;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  pointer-events: none;
+  white-space: nowrap;
+}
+
+/* Locked lane / clip: hatched, no trim handles, not-allowed cursor. */
+.track.locked {
+  background-image: repeating-linear-gradient(135deg, #ffffff07 0 6px, transparent 6px 12px);
+}
+
+.clip.locked {
+  cursor: not-allowed;
+}
+
+.clip.locked .handle {
+  display: none;
+}
+
+.clip.locked .clip-body::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: repeating-linear-gradient(135deg, transparent 0 6px, #00000055 6px 8px);
+  pointer-events: none;
+}
+
+.clip.locked .clip-body::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  top: 3px;
+  right: 4px;
+  width: 9px;
+  height: 10px;
+  background: #ffb454;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='black' stroke-width='2' d='M5 7V5a3 3 0 0 1 6 0v2'/%3E%3Crect x='3' y='7' width='10' height='8' rx='1.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='black' stroke-width='2' d='M5 7V5a3 3 0 0 1 6 0v2'/%3E%3Crect x='3' y='7' width='10' height='8' rx='1.5'/%3E%3C/svg%3E") center / contain no-repeat;
+  pointer-events: none;
+}
+
+/* Disabled clip: still on the timeline, gone from preview and export. */
+.clip.disabled .clip-body {
+  opacity: .35;
+  filter: grayscale(1);
+}
+
+.clip.disabled .clip-label {
+  text-decoration: line-through;
+}
+
 .timeline-scroll {
   flex: 1;
+  min-height: 0;
   overflow-x: auto;
   overflow-y: auto;
   position: relative;
@@ -1611,6 +1968,9 @@ input[type=range] {
 
 .tracks-content {
   position: relative;
+  /* clip so abspos playhead `left` cannot grow the scroller's overflow */
+  overflow: clip;
+  overflow-clip-margin: 8px;
 }
 .work-dim {
   position: absolute;
@@ -1927,6 +2287,7 @@ body.track-size-s .clip .clip-kf-n {
   background: #ff4d6a;
   z-index: 4;
   pointer-events: none;
+  contain: layout;
 }
 
 .playhead-cap {
@@ -2329,4 +2690,193 @@ body.file-drag::after {
   justify-content: center;
   z-index: 99;
   pointer-events: none;
+}
+/* ── Round 3: snap targets, markers, typed timecode ── */
+.snap-seg {
+  display: inline-flex;
+}
+
+.snap-seg #btnSnap {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+#btnSnapMenu {
+  padding: 3px 5px;
+  border-left: 0;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.snap-line {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: #5eead4;
+  box-shadow: 0 0 0 1px #5eead433;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.snap-menu {
+  min-width: 170px;
+}
+
+.snap-menu-head,
+.marker-pop-head {
+  padding: 4px 10px 6px;
+  font-size: 11px;
+}
+
+.ctx-menu .snap-opt {
+  justify-content: flex-start;
+  gap: 8px;
+  align-items: center;
+}
+
+.snap-opt input {
+  accent-color: var(--accent);
+}
+
+.marker-pop {
+  width: 216px;
+}
+
+.marker-pop-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
+.marker-pop-head .timecode {
+  font-size: 12px;
+}
+
+.marker-name {
+  width: 100%;
+  margin: 0 0 8px;
+  padding: 5px 7px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  user-select: text;
+}
+
+.marker-name:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.marker-swatches {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 4px;
+  margin: 0 2px 6px;
+}
+
+.marker-swatch {
+  aspect-ratio: 1;
+  border: 2px solid transparent;
+  border-radius: 50%;
+  background: var(--c);
+  cursor: pointer;
+}
+
+.marker-swatch.on {
+  border-color: #fff;
+}
+
+.marker-swatch:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.marker-list {
+  min-width: 240px;
+  max-height: 320px;
+  overflow-y: auto;
+}
+
+.marker-row {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.ctx-menu .marker-go {
+  justify-content: flex-start;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+
+.marker-go .timecode {
+  font-size: 12px;
+}
+
+.marker-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marker-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  background: var(--c);
+  transform: rotate(45deg);
+}
+
+.marker-edit {
+  flex: none;
+}
+
+.marker-clear {
+  margin-top: 4px !important;
+  border-top: 1px solid var(--border) !important;
+  border-radius: 0 0 4px 4px !important;
+}
+
+.marker-empty {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+#tcCurrent,
+#tcIn,
+#tcOut {
+  cursor: text;
+  border-radius: 3px;
+}
+
+#tcCurrent:hover,
+#tcIn:hover,
+#tcOut:hover {
+  background: #ffffff12;
+}
+
+.timecode.editing {
+  visibility: hidden;
+}
+
+.tc-input {
+  position: fixed;
+  z-index: 10000;
+  box-sizing: border-box;
+  padding: 0 2px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  background: var(--bg);
+  color: #fff;
+  line-height: 1;
+  outline: none;
+  user-select: text;
 }
