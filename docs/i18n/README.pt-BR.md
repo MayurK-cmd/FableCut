@@ -19,7 +19,7 @@
 [![Mentioned in Awesome MCP Servers](https://awesome.re/mentioned-badge.svg)](https://github.com/punkpeye/awesome-mcp-servers)
 [![Glama score](https://glama.ai/mcp/servers/ronak-create/FableCut/badges/score.svg)](https://glama.ai/mcp/servers/ronak-create/FableCut)
 [![Glama — #18 Best Browser Automation MCP Servers](https://img.shields.io/badge/Glama-%2318%20Best%20Browser%20Automation-0e1618)](https://glama.ai/mcp/best/browser-automation)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ronak-create/FableCut)
+[![Docs](https://img.shields.io/badge/Docs-fablecut.space%2Fdocs-7b6cff)](https://fablecut.space/docs/)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/EFMQH7d6Tv)
 
 [English](../../README.md) · [简体中文](README.zh-CN.md) · [日本語](README.ja.md) · [Español](README.es.md) · **Português (BR)**
@@ -243,11 +243,9 @@ Tudo o que um agente precisa está no **[CLAUDE.md](../../CLAUDE.md)** — o sch
 completo, a semântica e um livro de receitas. Aponte qualquer modelo competente
 para esse arquivo e ele opera o editor de ponta a ponta.
 
-> 📖 **Documentação navegável:** para um passeio conversacional e gerado
-> automaticamente pelo código — arquitetura, o schema do `project.json`, a
-> superfície MCP — veja o
-> **[FableCut no DeepWiki](https://deepwiki.com/ronak-create/FableCut)**. Dá para
-> fazer perguntas sobre o repositório em linguagem natural.
+> 📖 **Documentação navegável:** o mesmo manual em páginas web, uma por tema
+> (ferramentas MCP, o schema do `project.json`, propriedades de clipe, receitas,
+> API REST, exportação): **[fablecut.space/docs](https://fablecut.space/docs/)**.
 
 Três superfícies de controle equivalentes:
 

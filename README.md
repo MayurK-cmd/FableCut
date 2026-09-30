@@ -13,7 +13,7 @@
 [![Mentioned in Awesome MCP Servers](https://awesome.re/mentioned-badge.svg)](https://github.com/punkpeye/awesome-mcp-servers)
 [![Glama score](https://glama.ai/mcp/servers/ronak-create/FableCut/badges/score.svg)](https://glama.ai/mcp/servers/ronak-create/FableCut)
 [![Glama — #18 Best Browser Automation MCP Servers](https://img.shields.io/badge/Glama-%2318%20Best%20Browser%20Automation-0e1618)](https://glama.ai/mcp/best/browser-automation)
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/ronak-create/FableCut)
+[![Docs](https://img.shields.io/badge/Docs-fablecut.space%2Fdocs-7b6cff)](https://fablecut.space/docs/)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.gg/EFMQH7d6Tv)
 
 **English** · [简体中文](docs/i18n/README.zh-CN.md) · [日本語](docs/i18n/README.ja.md) · [Español](docs/i18n/README.es.md) · [Português (BR)](docs/i18n/README.pt-BR.md)
@@ -265,10 +265,9 @@ Everything an agent needs is in **[CLAUDE.md](CLAUDE.md)** — the complete
 schema, semantics and recipes. Point any capable model at that file and it can
 operate the editor end to end.
 
-> 📖 **Browsable docs:** for a conversational, auto-generated tour of the
-> codebase — architecture, the `project.json` schema, the MCP surface — see
-> **[FableCut on DeepWiki](https://deepwiki.com/ronak-create/FableCut)**. Ask it
-> questions about the repo in natural language.
+> 📖 **Browsable docs:** the same manual as web pages, one page per topic
+> (MCP tools, the `project.json` schema, clip props, recipes, REST API,
+> export): **[fablecut.space/docs](https://fablecut.space/docs/)**.
 
 Three equivalent control surfaces:
 
