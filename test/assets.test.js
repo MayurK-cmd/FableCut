@@ -12,6 +12,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const zlib = require("node:zlib");
 const { ROOT } = require("./helpers");
 
 const SVG_DIR = path.join(ROOT, "library", "svg");
@@ -76,6 +77,61 @@ test("the documented starter SVGs still ship", () => {
   // CLAUDE.md points authors at these by name as the worked examples.
   for (const named of ["sparkles.svg", "lower-third.svg", "confetti-burst.svg", "underline-swoosh.svg"]) {
     assert.ok(svgFiles.includes(named), `CLAUDE.md cites library/svg/${named} but it is missing`);
+  }
+});
+
+/* Code points a WOFF2 file maps to a glyph: the table directory gives cmap's
+   place in the Brotli stream, then its format 4 / 12 subtables are walked. */
+function woff2CodePoints(buf) {
+  assert.equal(buf.toString("latin1", 0, 4), "wOF2", "not a WOFF2 file");
+  let o = 48, at = 0, cmap = null;
+  const base128 = () => { let x = 0, b; do { b = buf[o++]; x = x * 128 + (b & 127); } while (b & 128); return x; };
+  for (let i = 0, n = buf.readUInt16BE(12); i < n; i++) {
+    const flags = buf[o++], known = flags & 63;
+    if (known === 63) o += 4;
+    const orig = base128(), xform = flags >> 6;
+    const len = (known === 10 || known === 11 ? xform !== 3 : xform !== 0) ? base128() : orig;
+    if (known === 0) cmap = { at, len: orig };
+    at += len;
+  }
+  const c = zlib.brotliDecompressSync(buf.subarray(o, o + buf.readUInt32BE(20)))
+    .subarray(cmap.at, cmap.at + cmap.len);
+  const cps = new Set();
+  for (let i = 0, n = c.readUInt16BE(2); i < n; i++) {
+    const s = c.readUInt32BE(8 + i * 8), fmt = c.readUInt16BE(s);
+    if (fmt === 4) {
+      const segs = c.readUInt16BE(s + 6) / 2, ends = s + 14, starts = ends + segs * 2 + 2;
+      const deltas = starts + segs * 2, ranges = deltas + segs * 2;
+      for (let k = 0; k < segs; k++) {
+        const start = c.readUInt16BE(starts + k * 2), end = c.readUInt16BE(ends + k * 2);
+        const delta = c.readInt16BE(deltas + k * 2), ro = c.readUInt16BE(ranges + k * 2);
+        for (let cp = start; cp <= end && cp < 0xffff; cp++) {
+          const g = ro ? c.readUInt16BE(ranges + k * 2 + ro + (cp - start) * 2) : (cp + delta) & 0xffff;
+          if (g) cps.add(cp);
+        }
+      }
+    } else if (fmt === 12) {
+      for (let k = 0, groups = c.readUInt32BE(s + 12); k < groups; k++) {
+        const g = s + 16 + k * 12;
+        for (let cp = c.readUInt32BE(g), end = c.readUInt32BE(g + 4); cp <= end; cp++) cps.add(cp);
+      }
+    }
+  }
+  return cps;
+}
+
+test("library fonts can draw Latin text", () => {
+  // Every title style names one of these. A font without these glyphs doesn't
+  // fail to load: the title quietly draws in the fallback face instead, which
+  // is how 1.0-1.9.0 shipped (each file was a Cyrillic/Vietnamese/... slice).
+  const dir = path.join(ROOT, "library", "fonts");
+  const fonts = fs.readdirSync(dir).filter((f) => f.endsWith(".woff2"));
+  assert.ok(fonts.length > 0, "no library fonts found");
+  const need = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789é";
+  for (const f of fonts) {
+    const cps = woff2CodePoints(fs.readFileSync(path.join(dir, f)));
+    const missing = [...need].filter((ch) => !cps.has(ch.codePointAt(0)));
+    assert.equal(missing.join(""), "", `${f} has no glyphs for these (not the Google Fonts "latin" subset?)`);
   }
 });
 

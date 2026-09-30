@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+- **Titles draw in their own fonts again.** Every title style (Anton, Playfair
+  Display, Bebas Neue, Caveat, …) was falling back to the system sans-serif:
+  - The 20 fonts in `library/fonts` were the wrong slice of each Google font
+    (Cyrillic, Vietnamese, …) with no A–Z in them. They are now the Latin
+    files, and the variable ones (Caveat, DM Sans, Inter, Montserrat, Oswald,
+    Playfair Display, Roboto, Rubik, Teko) keep their whole weight range, so
+    `weight` 100–900 draws real weights instead of a faked bold.
+  - Fonts that aren't in the library (Cinzel for the Luxury style, or any
+    Google Font typed by name) never loaded: the check meant to skip fonts
+    already present passed for every name. They load now, and **Load** says
+    so when Google Fonts has no family by that name.
+  - A data directory seeded before this release (the Claude Code plugin keeps
+    one) gets the new font files on the next start; a file you changed or
+    added yourself is never overwritten.
+- Exports wait for every title font, including a `font-cut` title's whole
+  set, before the first frame, so an opening frame can't come out in the
+  fallback face.
+- The font list no longer shows a library font twice after a quick run of
+  project reloads.
+
 ## [1.9.0] - 2026-09-30
 
 ### Added

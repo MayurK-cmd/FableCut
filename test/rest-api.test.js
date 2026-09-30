@@ -94,6 +94,26 @@ test("GET /api/library lists assets and validates the dir argument", async (t) =
   }
 });
 
+test("seeding the library never overwrites the user's own files", async (t) => {
+  // A split data dir gets the shipped library once. Only copies still
+  // byte-identical to a file we replaced (paths.js SUPERSEDED) are refreshed;
+  // a user's file under a shipped name stays exactly as they left it.
+  const dir = makeDataDir(t);
+  const fonts = path.join(dir, "library", "fonts");
+  fs.mkdirSync(fonts, { recursive: true });
+  fs.writeFileSync(path.join(fonts, "Anton.woff2"), "the user's own Anton");
+  fs.writeFileSync(path.join(fonts, "Brand.woff2"), "a font the user added");
+  const { base } = await startServer(t, dir);
+
+  assert.equal(fs.readFileSync(path.join(fonts, "Anton.woff2"), "utf8"), "the user's own Anton");
+  assert.equal(fs.readFileSync(path.join(fonts, "Brand.woff2"), "utf8"), "a font the user added");
+  const shipped = path.join(__dirname, "..", "library", "fonts", "Bebas Neue.woff2");
+  assert.ok(fs.readFileSync(path.join(fonts, "Bebas Neue.woff2")).equals(fs.readFileSync(shipped)),
+    "a shipped font missing from the data dir should be seeded");
+  const listed = (await (await fetch(base + "/api/library?dir=fonts")).json()).map((f) => f.name);
+  assert.ok(listed.includes("Brand.woff2") && listed.includes("Bebas Neue.woff2"));
+});
+
 test("POST /api/import-url rejects non-https and private targets", async (t) => {
   const { dir, base } = await boot(t);
   const reject = async (url, expect) => {

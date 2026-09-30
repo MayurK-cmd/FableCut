@@ -124,7 +124,7 @@ Reusable assets, visible in the editor's left-panel tabs and never copied:
 | `library/sfx/`      | **Sound FX** | whooshes, impacts, risers, UI clicks |
 | `library/elements/` | **Elements** | overlay art: alpha PNGs, light leaks, textures, stickers |
 | `library/svg/`      | **SVG**      | animated vector graphics **you author** (convention below) |
-| `library/fonts/`    | font editor  | `.ttf/.otf/.woff/.woff2`, auto-registered, family name = file name |
+| `library/fonts/`    | font editor  | `.ttf/.otf/.woff/.woff2`, auto-registered, family name = file name; a variable font draws every `weight` |
 
 - List via `GET /api/library?dir=sfx|elements|svg|fonts` (recursive; subfolders OK).
 - To use one in the timeline, add a media entry whose `src` is its library path,

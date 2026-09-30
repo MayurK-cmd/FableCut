@@ -609,7 +609,9 @@ const runtime = {
   wavePeaks: new Map(), // mediaId -> {channels: Float32Array[], max: Float32Array} | Float32Array (legacy) | null (pending)
   library: {},          // dir -> [{name, rel, src, size}] cached /api/library results
   customFonts: [],      // family names loaded from /library/fonts
-  googleLoaded: new Set(),
+  libraryFontReq: new Set(), // library families claimed by a load pass
+  googleLoaded: new Set(),   // loaded from Google Fonts (the font picker lists them)
+  fontReq: new Map(),   // font name -> Promise<boolean> (ensureFont)
   undo: [], redo: [],
   audio: null,          // {ctx, master, recDest, meter?, meterReady?}
   saveTimer: null, pendingSync: false,
@@ -5303,7 +5305,7 @@ function renderInspector(lite) {
       else if (a === "gfont-load") {
         const name = els.inspector.querySelector("[data-gfont]")?.value.trim();
         if (!name) return;
-        ensureFont(name);
+        ensureFont(name).then((ok) => { if (!ok) toast(`Couldn't load "${name}" from Google Fonts`); });
         c.props.font = name;
         toast(`Loading Google font "${name}"…`);
       }
@@ -8581,35 +8583,130 @@ function drawText(c, p, local) {
 /* ═══════════════════════════ FONTS ═══════════════════════════ */
 /* Custom fonts: any .ttf/.otf/.woff/.woff2 in ./library/fonts is registered
    under its file name (sans extension). Google fonts load on demand by name. */
-async function loadLibraryFonts() {
-  try {
-    const files = await (await fetch("/api/library?dir=fonts")).json();
-    for (const f of files) {
-      if (!/\.(ttf|otf|woff2?)$/i.test(f.name)) continue;
-      const family = f.name.replace(/\.[^.]+$/, "");
-      if (runtime.customFonts.includes(family)) continue;
-      try {
-        const face = new FontFace(family, `url("${f.src}")`);
-        await face.load();
-        document.fonts.add(face);
-        runtime.customFonts.push(family);
-      } catch { }
-    }
-    runtime.customFonts.sort();
-  } catch { }
+let libraryFontsReady = null; // the first library pass; ensureFont waits on it
+function loadLibraryFonts() {
+  const pass = (async () => {
+    try {
+      const files = await (await fetch("/api/library?dir=fonts")).json();
+      await Promise.all(files.map(async (f) => {
+        if (!/\.(ttf|otf|woff2?)$/i.test(f.name)) return;
+        const family = f.name.replace(/\.[^.]+$/, "");
+        // claimed before the first await: every sync runs this, and passes
+        // that overlapped used to list the same family twice
+        if (runtime.libraryFontReq.has(family)) return;
+        runtime.libraryFontReq.add(family);
+        try {
+          const buf = await (await fetch(f.src)).arrayBuffer();
+          // a variable font draws every weight itself; a static one keeps the
+          // default descriptor so bold is still synthesized from it
+          const face = new FontFace(family, buf, fontIsVariable(buf) ? { weight: "1 1000" } : {});
+          await face.load();
+          document.fonts.add(face);
+          runtime.customFonts.push(family);
+          runtime.customFonts.sort();
+        } catch { runtime.libraryFontReq.delete(family); }
+      }));
+    } catch { }
+  })();
+  libraryFontsReady ??= pass;
+  return pass;
 }
+/* True when a font file has an fvar table. Reads only the table directory,
+   of an sfnt (TTF/OTF), a WOFF or a WOFF2. */
+function fontIsVariable(buf) {
+  const FVAR = 0x66766172;
+  try {
+    const v = new DataView(buf);
+    const sig = v.getUint32(0);
+    if (sig === 0x774f4632) { // wOF2: flags, optional tag, UIntBase128 lengths
+      let o = 48;
+      const skip128 = () => { while (v.getUint8(o++) & 128); };
+      for (let i = 0, n = v.getUint16(12); i < n; i++) {
+        const flags = v.getUint8(o++), known = flags & 63;
+        if (known === 47) return true; // 47 = fvar in the WOFF2 known-tag table
+        if (known === 63 && v.getUint32((o += 4) - 4) === FVAR) return true;
+        skip128(); // origLength
+        const xform = flags >> 6; // glyf/loca: 3 is the null transform, others: 0
+        if (known === 10 || known === 11 ? xform !== 3 : xform !== 0) skip128();
+      }
+      return false;
+    }
+    const woff = sig === 0x774f4646;
+    for (let i = 0, n = v.getUint16(woff ? 12 : 4); i < n; i++)
+      if (v.getUint32(woff ? 44 + i * 20 : 12 + i * 16) === FVAR) return true;
+  } catch { }
+  return false;
+}
+/* Every weight, upright and italic, in one request: the API leaves out the
+   styles a family doesn't have, and answers 400 for a name it doesn't know. */
+const GOOGLE_FONT_STYLES = "ital,wght@" + [0, 1].flatMap((i) =>
+  [100, 200, 300, 400, 500, 600, 700, 800, 900].map((w) => `${i},${w}`)).join(";");
+const FONT_READY = Promise.resolve(true);
+let fontProbe = null;
+/* Installed on this machine? A known face measures differently from the
+   generic fallback it would otherwise get. */
+function fontInstalled(name) {
+  fontProbe ||= document.createElement("canvas").getContext("2d");
+  const s = "mmmmmmmmmmlli1WQ@#";
+  return ["monospace", "serif"].some((generic) => {
+    fontProbe.font = `72px ${generic}`;
+    const base = fontProbe.measureText(s).width;
+    fontProbe.font = `72px "${name}", ${generic}`;
+    return fontProbe.measureText(s).width !== base;
+  });
+}
+function fontRegistered(name) {
+  for (const f of document.fonts) if (f.family.replace(/^["']|["']$/g, "") === name) return true;
+  return false;
+}
+/* Make `name` drawable: system and library fonts already are, anything else
+   comes from Google Fonts. Resolves false when there is no such font. Cheap
+   to call every frame (font-cut does): one request per name, ever. */
 function ensureFont(name) {
-  if (!name || SYSTEM_FONTS.includes(name) || runtime.customFonts.includes(name)) return;
-  if (runtime.googleLoaded.has(name)) return;
-  if (document.fonts.check(`16px "${name}"`)) return;
-  runtime.googleLoaded.add(name);
-  const link = document.createElement("link");
-  link.rel = "stylesheet";
-  // CORS mode so @font-face files stay origin-clean when fillText hits the canvas.
-  link.crossOrigin = "anonymous";
-  link.href = "https://fonts.googleapis.com/css2?family=" +
-    encodeURIComponent(name).replace(/%20/g, "+") + ":ital,wght@0,300..900;1,300..900&display=swap";
-  document.head.appendChild(link);
+  if (!name || SYSTEM_FONTS.includes(name)) return FONT_READY;
+  let req = runtime.fontReq.get(name);
+  if (req) return req;
+  req = (async () => {
+    await (libraryFontsReady || loadLibraryFonts());
+    if (runtime.customFonts.includes(name) || fontRegistered(name) || fontInstalled(name)) return true;
+    const ok = await new Promise((resolve) => {
+      const link = document.createElement("link");
+      link.rel = "stylesheet";
+      // CORS mode so @font-face files stay origin-clean when fillText hits the canvas.
+      link.crossOrigin = "anonymous";
+      link.href = "https://fonts.googleapis.com/css2?family=" +
+        encodeURIComponent(name).replace(/%20/g, "+") + ":" + GOOGLE_FONT_STYLES + "&display=swap";
+      link.onload = () => resolve(true);
+      link.onerror = () => { link.remove(); resolve(false); };
+      document.head.appendChild(link);
+    });
+    if (!ok) return false;
+    runtime.googleLoaded.add(name);
+    // fetch the usual faces now instead of on the first frame that draws them
+    await Promise.all(["400", "700"].map((w) => document.fonts.load(`${w} 64px "${name}"`).catch(() => { })));
+    return true;
+  })();
+  runtime.fontReq.set(name, req);
+  return req;
+}
+/* Before an export: every face the titles draw with, loaded. A frame drawn
+   while its face is still in flight comes out in the fallback font, and in
+   an export that frame is final. Bounded so a dead network can't stall it. */
+async function loadProjectFonts() {
+  const faces = new Map(); // "italic 700 64px "Anton"" -> "Anton"
+  for (const c of project.clips) {
+    if (c.kind !== "text" || c.disabled) continue;
+    const p = c.props || {};
+    const fams = [p.font || "Segoe UI"];
+    if (p.textAnim === "font-cut")
+      fams.push(...(Array.isArray(p.fontCutSet) && p.fontCutSet.length ? p.fontCutSet : FONT_CUT_DEFAULT));
+    for (const fam of fams) faces.set(`${p.italic ? "italic " : ""}${textFontWeight(p)} 64px "${fam}"`, fam);
+  }
+  const load = Promise.all([...faces].map(async ([spec, fam]) => {
+    if (await ensureFont(fam)) await document.fonts.load(spec).catch(() => { });
+  }));
+  await Promise.race([load, new Promise((r) => setTimeout(r, 8000))]);
+  try { await document.fonts.ready; } catch { }
 }
 
 /* ── Main loop ── */
@@ -9629,7 +9726,7 @@ async function fastExport() {
       const r = await fetch("/api/export/audio?id=" + sessId, { method: "POST", body: wav, signal });
       if (!r.ok) throw new Error("audio upload failed");
     }
-    try { await document.fonts.ready; } catch { }
+    await loadProjectFonts();
     resetExportCanvases();
     await armExportCors();
     // JPEG off the compositor thread: snapshot is sync, encode/upload run ahead
@@ -9823,7 +9920,7 @@ async function webCodecsExport() {
       avc: { format: "annexb" },
       latencyMode: "quality",
     });
-    try { await document.fonts.ready; } catch { }
+    await loadProjectFonts();
     resetExportCanvases();
     await armExportCors();
 
@@ -9911,6 +10008,7 @@ async function startExport() {
   state.time = start;
   seekMediaWhilePaused();
   await new Promise((r) => setTimeout(r, 350)); // let first frames decode
+  await loadProjectFonts();
   const stream = els.preview.captureStream(projectFps());
   for (const tr of runtime.audio.recDest.stream.getAudioTracks()) stream.addTrack(tr);
   recChunks = []; recDiscard = false;
