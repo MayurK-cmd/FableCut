@@ -193,6 +193,39 @@
     });
   })();
 
+  /* ── Docs: the small-screen page menu, and the "On this page" list
+     following the reader down the page ── */
+  (function () {
+    var side = document.querySelector(".docs-side");
+    var btn = side && side.querySelector(".docs-menu");
+    if (btn) btn.addEventListener("click", function () {
+      var open = !side.classList.contains("open");
+      side.classList.toggle("open", open);
+      btn.setAttribute("aria-expanded", String(open));
+    });
+
+    var links = [].slice.call(document.querySelectorAll(".docs-toc a[href^='#']"));
+    if (!links.length || !("IntersectionObserver" in window)) return;
+    var byId = {};
+    links.forEach(function (a) { byId[decodeURIComponent(a.hash.slice(1))] = a; });
+    var heads = [].slice.call(document.querySelectorAll(".prose [id]")).filter(function (h) { return byId[h.id]; });
+    var visible = {};
+    function mark() {
+      // the first heading still on screen, else the last one scrolled past
+      var cur = null;
+      for (var i = 0; i < heads.length; i++) {
+        if (visible[heads[i].id]) { cur = heads[i]; break; }
+        if (heads[i].getBoundingClientRect().top < 120) cur = heads[i];
+      }
+      links.forEach(function (a) { a.classList.toggle("on", !!cur && a === byId[cur.id]); });
+    }
+    var io = new IntersectionObserver(function (entries) {
+      entries.forEach(function (en) { visible[en.target.id] = en.isIntersecting; });
+      mark();
+    }, { rootMargin: "-80px 0px -55% 0px" });
+    heads.forEach(function (h) { io.observe(h); });
+  })();
+
   /* ── Playground ───────────────────────────────────────────────
      The textarea is project.json; the iframe is the real editor reading it.
      The chips play the part of an agent: each one rewrites a few fields,
