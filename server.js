@@ -527,6 +527,22 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+  /* API: measure the graded program frame (fablecut_scopes) — a "scopes"
+     job on the export-job queue, polled with GET /api/export/job?id=. */
+  if (p === "/api/scopes/request" && req.method === "POST") {
+    try {
+      const opts = JSON.parse((await readBody(req)).toString("utf8") || "{}");
+      let revision = null;
+      try { revision = JSON.parse(fs.readFileSync(PROJECT_FILE, "utf8").replace(/^﻿/, "")).revision ?? null; } catch {}
+      const ok = typeof opts.time === "number" || (typeof opts.time === "string" && opts.time.trim() !== "" && Number.isFinite(Number(opts.time)));
+      if (opts.time != null && !ok) { sendJSON(res, 400, { error: "time must be seconds ≥ 0" }); return; }
+      const time = opts.time == null ? null : Number(opts.time);
+      sendJSON(res, 200, exportJobs.request({ kind: "scopes", time, where: opts.where, revision }));
+    } catch (e) {
+      sendJSON(res, e.code === 409 || e.code === 400 ? e.code : 500, { error: String(e.message || e) });
+    }
+    return;
+  }
   if (p.startsWith("/api/export/job")) {
     const id = url.searchParams.get("id") || "";
     const action = p.slice("/api/export/job".length);
