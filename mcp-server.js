@@ -28,6 +28,7 @@ const FX = require("./audio-fx");
 const EditOps = require("./edit-ops");
 const Denoise = require("./denoise");
 const Color = require("./color");
+const FrameStats = require("./frame-stats");
 
 /* ROOT is where the code lives (server.js, CLAUDE.md); the user's timeline and
    media live under DATA_DIR. Identical unless FABLECUT_DATA_DIR is set. */
@@ -170,11 +171,11 @@ const TOOLS = [
   },
   {
     name: "fablecut_frame",
-    description: "LOOK at the footage — returns an actual image you can see, not just numbers. Two modes. (1) A source clip: pass `path` (absolute, or an existing /media/… src) and `t` in seconds to get that exact frame as a JPEG. (2) A contact sheet: pass `frames` (2–60) to get one grid image with that many moments spread across the clip (add `from`/`to` to survey part of it) — the cheap way to see what a whole clip holds. With no path, `time` instead renders the COMPOSED TIMELINE at that moment through the editor's own compositor, graded and multi-track, exactly as export would. Use this before choosing a clip's `in` point or when picking footage to match a blueprint's shots[] energy — seeing beats guessing from a number. Needs ffmpeg on PATH (the timeline mode runs in the open editor tab, else a headless browser).",
+    description: "LOOK at the footage — returns an actual image, not just numbers. REQUIRES A VISION-CAPABLE MODEL: if you cannot read images, pass `text:true` instead (or skip this tool and use fablecut_analyze_reference). Three modes. (1) One frame of a source clip: pass `path` (an absolute file path, or a '/media/…' src — read where it lies, never copied) and `t` in seconds. (2) A contact sheet: pass `frames` (2–60) for one grid image with that many moments spread across the clip (`from`/`to` to survey part of it) — the cheap way to see what a whole clip holds. (3) With no `path`, `time` renders the COMPOSED TIMELINE at that moment through the editor's own compositor, graded and multi-track, exactly as export would. Use it before choosing a clip's `in` point, or to pick footage matching a blueprint's shots[] energy — seeing beats guessing. Needs ffmpeg on PATH (timeline mode runs in the open editor tab, else a headless browser).",
     inputSchema: {
       type: "object",
       properties: {
-        path: { type: "string", description: "Source clip to look at: an absolute file path or an existing '/media/…' src. Omit to render the timeline instead." },
+        path: { type: "string", description: "Source clip to look at: an absolute file path or a '/media/…' src. Read in place — nothing is copied into media/. Omit to render the timeline instead." },
         t: { type: "number", description: "Seconds into the source clip (default 0). Ignored when `frames` is passed." },
         time: { type: "number", description: "TIMELINE seconds to render, when `path` is omitted (default: the editor's playhead)" },
         frames: { type: "number", description: "Contact-sheet mode: number of moments to sample across the clip, 2–60 (default 12)" },
@@ -182,6 +183,7 @@ const TOOLS = [
         from: { type: "number", description: "Contact sheet: start of the range to survey (default 0)" },
         to: { type: "number", description: "Contact sheet: end of the range (default: the clip's duration)" },
         width: { type: "number", description: "Pixel width of the returned image (default 768 for one frame, 320 per cell for a sheet)" },
+        text: { type: "boolean", description: "Return TEXT measurements instead of the image, for a client or model that cannot see one: brightness and luma levels, dominant named colours with their share, texture (detail within the frame, 0–100), and for a contact sheet a per-cell line with change-since-the-previous-cell. Measurements, NOT a caption — they say what the picture is made of, never what is in it. Use when you have no vision." },
         where: { type: "string", enum: ["auto", "tab", "headless"], description: "Timeline mode only: auto (default): an open editor tab, else headless · tab · headless" },
         timeout: { type: "number", description: "Timeline mode: seconds to wait for the render (default 60)" },
       },
@@ -655,7 +657,9 @@ function apiBytes(urlPath) {
 
 async function frameTool(args) {
   /* Timeline mode: no path. The compositor lives in the browser, so this rides
-     the same job queue the scopes reading uses, with image:true. */
+     the same job queue the scopes reading uses, with image:true. Text mode
+     needs no image at all here — the scopes reading already measures the frame,
+     and those numbers describe the composed picture. */
   if (!args.path) {
     if (!(await ensureUIServer())) throw new Error(`the editor server is not running and could not be started on port ${PORT}`);
     const body = { where: args.where || "auto", image: true };
@@ -676,39 +680,35 @@ async function frameTool(args) {
     }
     if (job.status !== "done") throw new Error(`frame render ${job.status}: ${job.error || "no reason given"}`);
     const res = job.result || {};
+    const onScreen = (res.clips || []).map((c) => `${c.id} ${c.track} ${c.kind}`).join(", ") || "nothing";
+    const head = `Timeline at ${res.time}s (${res.frame?.w}x${res.frame?.h}) — on screen: ${onScreen}`;
+
+    /* Text mode: the scopes reading measured this exact frame already, and its
+       numbers are the same family as the source-frame measurements — so a
+       text-only agent gets the composed picture described, not nothing. */
+    if (args.text) {
+      const st = res.stats, st_ = st ? describeScopeLines(st) : null;
+      return [{ type: "text", text: head + "\n" + (st_ || "The editor returned no measurements for this frame.") + "\n\n" + TEXT_ONLY_NOTE }];
+    }
     const img = imageBlockFromDataUrl(res.image);
     if (!img) throw new Error("the editor rendered the frame but could not encode it as an image (a cross-origin source taints the canvas)");
-    const onScreen = (res.clips || []).map((c) => `${c.id} ${c.track} ${c.kind}`).join(", ") || "nothing";
-    return [
-      { type: "text", text: `Timeline at ${res.time}s (${res.frame?.w}x${res.frame?.h}) — on screen: ${onScreen}` },
-      img,
-    ];
+    return [{ type: "text", text: head }, img];
   }
 
-  /* Source mode: ffmpeg on the server. Resolve the path the same way
-     fablecut_analyze_reference does — an absolute file is read where it is,
-     a /media/… src stays in media/. */
+  /* Source mode: ffmpeg on the server. Looking must not have side effects, so
+     the file is read where it is — an absolute path is passed through as
+     `path`, and a /media/… or /library/… src is passed through as `src`. The
+     server never copies anything into media/ on our behalf. */
   if (!(await ensureUIServer())) throw new Error(`the editor server is not running and could not be started on port ${PORT}`);
   const raw = String(args.path);
-  let src;
-  if (/^\/media\//i.test(raw)) {
-    src = raw; // served as-is; the server re-checks the root
-  } else {
-    if (!fs.existsSync(raw) || !fs.statSync(raw).isFile()) throw new Error("File not found: " + raw);
-    if (path.dirname(path.resolve(raw)).toLowerCase() !== MEDIA_DIR.toLowerCase()) {
-      if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
-      const ext = path.extname(raw);
-      const stem = path.basename(raw, ext).replace(/[^\w.\- ()\[\]]+/g, "_");
-      let target = path.join(MEDIA_DIR, stem + ext);
-      let i = 1;
-      while (fs.existsSync(target)) target = path.join(MEDIA_DIR, `${stem}_${i++}${ext}`);
-      fs.copyFileSync(raw, target);
-      raw = target;
-    }
-    src = "/media/" + encodeURIComponent(path.basename(raw));
-  }
+  const served = /^\/(media|library)\//i.test(raw);
+  // A served src is resolved by the server against its own data dir, which may
+  // be somewhere this process cannot see (FABLECUT_DATA_DIR) — so let it decide
+  // and report the 404. A filesystem path we can check ourselves is checked.
+  if (!served && (!fs.existsSync(raw) || !fs.statSync(raw).isFile()))
+    throw new Error("File not found: " + raw);
 
-  const q = new URLSearchParams({ src });
+  const q = new URLSearchParams(served ? { src: raw } : { path: path.resolve(raw) });
   if (args.frames != null) {
     q.set("frames", String(Math.round(Number(args.frames))));
     q.set("cols", String(Math.round(Number(args.cols) || 4)));
@@ -721,6 +721,22 @@ async function frameTool(args) {
   }
   if (args.quality != null) q.set("q", String(args.quality));
 
+  /* text mode asks the server for measurements instead of the picture, in the
+     one request — not the picture and then a second call for the numbers. */
+  if (args.text) {
+    q.set("text", "1");
+    const j = await apiJSON("GET", "/api/frame?" + q.toString());
+    if (j.status !== 200) throw new Error(j.body?.error || `frame description failed (${j.status})`);
+    const st = j.body.stats, b = j.body;
+    const where = b.frames > 1
+      ? `${b.frames} moments across ${b.source || raw}, left→right then top→bottom, at ${(b.times || []).join("s, ")}s.`
+      : `Frame at ${(b.times || [])[0] ?? 0}s of ${b.source || raw}.`;
+    const body = !st
+      ? "The server returned no measurements for this frame (does it have a video track?)."
+      : b.frames > 1 ? FrameStats.gridLines(st).join("\n") : FrameStats.frameLines("Frame", st).join("\n");
+    return [{ type: "text", text: where + "\n" + body + "\n\n" + TEXT_ONLY_NOTE }];
+  }
+
   const res = await apiBytes("/api/frame?" + q.toString());
   if (res.status !== 200) {
     let msg = `frame request failed (${res.status})`;
@@ -729,12 +745,37 @@ async function frameTool(args) {
   }
   const times = (res.headers["x-fablecut-frame-times"] || "").split(",").filter(Boolean);
   const type = res.headers["content-type"] || "image/jpeg";
+  const source = res.headers["x-fablecut-frame-source"] || raw;
+  const head = args.frames != null
+    ? `Contact sheet — ${times.length} moments across ${source}, left→right then top→bottom, at ${times.join("s, ")}s.`
+    : `Frame at ${times[0] ?? 0}s of ${source}.`;
+
   if (res.body.length < 4 || res.body[0] !== 0xff || res.body[1] !== 0xd8)
     throw new Error("the server did not return a JPEG");
-  const head = args.frames != null
-    ? `Contact sheet — ${times.length} moments across ${res.headers["x-fablecut-frame-source"]}, left→right then top→bottom, at ${times.join("s, ")}s.`
-    : `Frame at ${times[0] ?? 0}s of ${res.headers["x-fablecut-frame-source"]}.`;
   return [{ type: "text", text: head }, imageBlock(type, res.body)];
+}
+
+/* Appended to every text: true answer, because a measurement is not a caption:
+   it says what the picture is made of, never what is in it. */
+const TEXT_ONLY_NOTE = [
+  "Measured, not described: these are brightness, dominant colours, texture (detail within the",
+  "frame) and change-since-the-previous-sample. They cannot tell you the subject — a person, a",
+  "car, a landscape, text on screen. To choose footage by what it shows, use a vision-capable",
+  "model and drop `text:true`, or stay with fablecut_analyze_reference for structure.",
+].join("\n");
+
+/** color.js scopeStats → text lines, for fablecut_frame {text:true} in timeline
+ *  mode. Same measurements fablecut_scopes reports, so a text-only agent gets
+ *  the composed picture described on the same terms as a source frame. */
+function describeScopeLines(st) {
+  const L = st.luma, cast = st.cast;
+  const bright = L.mean < 0.12 ? "very dark" : L.mean < 0.35 ? "dark" : L.mean < 0.65 ? "mid" : L.mean < 0.85 ? "bright" : "very bright";
+  return [
+    `${bright} (luma mean ${L.mean}, median ${L.median}, range ${L.min}–${L.max})`,
+    `  clipped: black ${st.clipped.blackPct}% · white ${st.clipped.whitePct}%`,
+    `  mean rgb [${st.rgbMean.join(", ")}] · saturation ${st.saturation}`,
+    `  colour cast: ${cast.tone === "neutral" ? "neutral" : `${cast.tone} (hue ${cast.hue}°), strength ${cast.strength}`}`,
+  ].join("\n");
 }
 
 /* ── Scopes (fablecut_scopes): one graded still, measured in the editor ── */

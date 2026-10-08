@@ -189,6 +189,19 @@ function resolveSrc(src) {
   try { return fs.statSync(file).isFile() ? file : null; } catch { return null; }
 }
 
+/** An explicit absolute/relative path argument → an existing file, or null.
+ *  Used by /api/frame only. This deliberately reaches outside media/ and
+ *  library/: looking at a clip must not require putting it in the project
+ *  folder. The caller is the local MCP server or the user's own fetch, both
+ *  already able to read any file the user can — and unlike resolveSrc() it
+ *  never turns a request string into a path *inside* a served root, so there
+ *  is no traversal to defend. It is deliberately NOT how a src is resolved. */
+function resolvePathArg(p) {
+  if (!p || typeof p !== "string") return null;
+  let file = path.resolve(p);
+  try { return fs.statSync(file).isFile() ? file : null; } catch { return null; }
+}
+
 /* Remux MP4-family uploads with `+faststart` so the moov atom leads the file —
    without it <video> stalls for seconds probing over Range requests. */
 function faststart(file) { return maybeFaststart(file); }
@@ -703,16 +716,33 @@ const server = http.createServer(async (req, res) => {
 
        GET /api/frame?src=/media/x.mp4&t=3.2[&w=768][&q=4]
        GET /api/frame?src=/media/x.mp4&frames=12[&cols=4][&from=0][&to=30][&w=320]
+       GET /api/frame?path=C:\clips\x.mp4&t=3.2
+
+     `src` is a served /media/ or /library/ path. `path` is any readable path on
+     this machine — it does NOT copy the file into media/, because looking at a
+     clip must not change the user's project folder. `path` is reached only from
+     this localhost API (the MCP server and the user's own fetch), which can
+     already read those files; resolveSrc() remains the guard for anything that
+     turns a request string into a path inside a served root.
+
+     &text=1 returns JSON statistics instead of the image, for agents (or
+     models) that cannot see one. Needs ffmpeg on PATH.
 
      Results are cached under analysis/frames/ by a hash of every argument, so
      polling the same timestamp costs nothing and the mtime/size of the cached
      file answers "did the source change underneath this?". */
   if (p === "/api/frame" && req.method === "GET") {
-    // The src guard runs first: whether a path is servable never depends on
-    // whether ffmpeg happens to be installed.
+    /* The path is resolved first: whether a file is readable never depends on
+       whether ffmpeg happens to be installed. */
+    const pathArg = url.searchParams.get("path");
     const src = url.searchParams.get("src") || "";
-    const file = resolveSrc(src);
-    if (!file) { sendJSON(res, 404, { error: "src must name an existing file under /media/ or /library/" }); return; }
+    const file = pathArg ? resolvePathArg(pathArg) : resolveSrc(src);
+    if (!file) {
+      sendJSON(res, 404, { error: pathArg
+        ? "path must be an existing file on this machine"
+        : "src must name an existing file under /media/ or /library/" });
+      return;
+    }
     if (!HAS_FFMPEG) { sendJSON(res, 400, { error: "ffmpeg not found on PATH — frame extraction needs it" }); return; }
     const num = (k, dflt) => {
       const raw = url.searchParams.get(k);
@@ -740,13 +770,23 @@ const server = http.createServer(async (req, res) => {
       if (!fs.existsSync(cache)) {
         const r = isSheet ? await frameGrid(file, opts) : await frame(file, opts);
         meta = isSheet
-          ? { frames: r.frames, cols: r.cols, rows: r.rows, times: r.times, duration: r.duration, cellWidth: r.width }
-          : { frames: 1, times: [r.time] };
-        meta.source = src;
+          ? { frames: r.frames, cols: r.cols, rows: r.rows, times: r.times, duration: r.duration, cellWidth: r.width, stats: r.stats }
+          : { frames: 1, times: [r.time], stats: r.stats };
+        meta.source = pathArg ? pathArg : src;
         const tmp = cache + ".tmp";
         fs.writeFileSync(tmp, r.jpeg);
         fs.renameSync(tmp, cache); // atomic: a half-written jpeg never gets cached
         fs.writeFileSync(cache.replace(/\.jpg$/, ".json"), JSON.stringify(meta));
+      }
+      /* text=1 answers JSON measurements instead of the picture, for agents and
+         models that cannot see one. Same decode, no pixels over the wire. */
+      if (url.searchParams.get("text") === "1") {
+        sendJSON(res, 200, {
+          source: meta.source, frames: meta.frames, times: meta.times,
+          cols: meta.cols || null, rows: meta.rows || null, duration: meta.duration ?? null,
+          stats: meta.stats || null,
+        });
+        return;
       }
       res.writeHead(200, {
         "Content-Type": "image/jpeg",

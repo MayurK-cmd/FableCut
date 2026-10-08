@@ -1,13 +1,17 @@
 /* GET /api/frame + fablecut_frame — the "eyes" that go with the analyzer's ears.
 
-   Three layers are covered, each skipping only what it must:
+   Four layers are covered, each skipping only what it must:
      · argument validation and the src path guard — no ffmpeg needed, so these
        run everywhere and are the ones that matter most (a localhost file API
        that renders arbitrary paths would be a hole in the box);
      · the real ffmpeg render — self-skips when ffmpeg is absent, like the
        export tests do;
      · the MCP wrapper, including that it answers with an image content block
-       and text first. */
+       and text first;
+     · the text-only fallback, for clients and models that cannot see images.
+
+   The measurements themselves are unit-tested without ffmpeg in
+   frame-stats.test.js; here they are checked as they arrive over the wire. */
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
@@ -283,6 +287,120 @@ test("a /library asset can be looked at without being copied into media", { skip
   // never happen is a 404, i.e. the guard rejecting a legitimate library src.
   assert.notEqual(res.status, 404, "a real library src must pass the path guard");
   await res.arrayBuffer();
+});
+
+/* Looking at a clip must not change anything the user owns. */
+test("looking at a file outside media/ never writes into media/", { skip: !hasFfmpeg() && "ffmpeg not on PATH" }, async (t) => {
+  const { dir, base } = await boot(t);
+  // A clip in a scratch folder, the way a user's footage actually arrives.
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "fc-outside-"));
+  t.after(() => fs.rmSync(scratch, { recursive: true, force: true }));
+  const file = fixture(scratch, "elsewhere.mp4");
+  assert.deepEqual(fs.readdirSync(path.join(dir, "media")), [], "media/ starts empty");
+
+  const res = await fetch(base + "/api/frame?path=" + encodeURIComponent(file) + "&t=1");
+  assert.equal(res.status, 200);
+  await res.arrayBuffer();
+
+  assert.deepEqual(fs.readdirSync(path.join(dir, "media")), [],
+    "reading a frame must not copy the clip into the project media folder");
+  assert.ok(fs.existsSync(file), "the source is untouched where it lay");
+});
+
+test("GET /api/frame?path rejects a path that is not a file", async (t) => {
+  const { dir, base } = await boot(t);
+  for (const p of ["", path.join(dir, "media"), path.join(dir, "nope.mp4"), dir]) {
+    const res = await fetch(base + "/api/frame?path=" + encodeURIComponent(p) + "&t=0");
+    const body = await res.json().catch(() => ({}));
+    assert.equal(res.status, 404, `path=${p} should be refused, got ${res.status}`);
+    assert.match(body.error || "", /path must be an existing file|src must name/);
+  }
+  assert.deepEqual(fs.readdirSync(path.join(dir, "media")), []);
+});
+
+/* ── The text-only fallback ──────────────────────────────────────────────────
+   A text-only agent must learn something about the footage, and must not be
+   told a measurement is a description. */
+test("GET /api/frame?text=1 describes a frame instead of returning pixels", { skip: !hasFfmpeg() && "ffmpeg not on PATH" }, async (t) => {
+  const { dir, base } = await boot(t);
+  fixture(dir, "clip.mp4"); // red 0–1s · lime 1–2s · blue 2–3s
+
+  const res = await fetch(base + "/api/frame?src=" + encodeURIComponent("/media/clip.mp4") + "&t=2&text=1");
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get("content-type"), /application\/json/);
+  const body = await res.json();
+  assert.equal(body.frames, 1);
+  assert.deepEqual(body.times, [2]);
+  const st = body.stats;
+  assert.ok(st, "text mode must carry measurements");
+  assert.equal(typeof st.luma.mean, "number");
+  assert.equal(typeof st.texture, "number");
+  assert.ok(st.colours.length >= 1);
+  // 2s into red→lime→blue is the blue third.
+  assert.match(st.colours[0].name, /blue/);
+  assert.ok(st.colours[0].pct > 50, `a flat frame should be mostly one colour, got ${st.colours[0].pct}%`);
+  // No pixels, and no base64 anywhere near the answer.
+  const raw = JSON.stringify(body);
+  assert.ok(!/data:image/.test(raw), "text mode must not smuggle an image through");
+});
+
+test("GET /api/frame?text=1 gives a contact sheet a line per cell", { skip: !hasFfmpeg() && "ffmpeg not on PATH" }, async (t) => {
+  const { dir, base } = await boot(t);
+  fixture(dir, "clip.mp4");
+
+  const res = await fetch(base + "/api/frame?src=" + encodeURIComponent("/media/clip.mp4") + "&frames=6&cols=3&text=1");
+  assert.equal(res.status, 200);
+  const body = await res.json();
+  assert.equal(body.frames, 6);
+  assert.equal(body.cols, 3);
+  assert.equal(body.rows, 2);
+  assert.equal(body.stats.cells.length, 6);
+  for (const [i, cell] of body.stats.cells.entries()) {
+    assert.equal(cell.index, i);
+    assert.ok(cell.time != null, `cell ${i} must carry its timestamp`);
+    assert.ok(typeof cell.texture === "number" && typeof cell.motion === "number");
+  }
+  // The colour changes twice across the clip, and both changes must show up as
+  // a jump in `motion` — that is what lets a text-only agent find the cuts.
+  const names = body.stats.cells.map((c) => c.colours[0].name);
+  assert.match(names[0], /red/);
+  assert.match(names[5], /blue/);
+  const jumps = body.stats.cells.filter((c) => c.motion > 0.3).length;
+  assert.equal(jumps, 2, `both colour changes should register, got motions ${body.stats.cells.map((c) => c.motion)}`);
+});
+
+test("fablecut_frame {text:true} returns no image and says what it cannot tell you", { skip: !hasFfmpeg() && "ffmpeg not on PATH" }, async (t) => {
+  const dir = makeDataDir(t);
+  fixture(dir, "clip.mp4");
+  const { base } = await startServer(t, dir, NO_WATCH);
+  const mcp = startMcp(t, dir, { FABLECUT_PORT: String(new URL(base).port) });
+  await mcp.request("initialize", { protocolVersion: "2025-11-25" });
+
+  const one = await mcp.callTool("fablecut_frame", { path: "/media/clip.mp4", t: 2, text: true });
+  assert.equal(one.isError, false);
+  assert.ok(!one.content.some((c) => c.type === "image"),
+    "text mode must not also hand over an image a text-only client cannot read");
+  const text = one.content.map((c) => c.text).join("\n");
+  assert.match(text, /Frame at 2s/, "it must still say what it is looking at");
+  assert.match(text, /blue/i, "the dominant colour must be reported");
+  assert.match(text, /luma mean/, "levels must be reported");
+  assert.match(text, /texture/, "texture must be reported");
+  // Honesty: a measurement is not a caption, and the answer has to admit that.
+  assert.match(text, /cannot tell you the subject|not a caption|never what is in it/i);
+
+  const sheet = await mcp.callTool("fablecut_frame", { path: "/media/clip.mp4", frames: 6, cols: 3, text: true });
+  assert.equal(sheet.isError, false);
+  assert.ok(!sheet.content.some((c) => c.type === "image"));
+  const st = sheet.content.map((c) => c.text).join("\n");
+  for (const t of [0.25, 1.25, 2.25]) assert.match(st, new RegExp(`${t}s`), `the sheet must label ${t}s`);
+  assert.match(st, /change/, "each cell must report its change since the previous one");
+
+  // The description has to warn a non-vision model before it calls, not after.
+  const { result } = await mcp.request("tools/list");
+  const desc = result.tools.find((x) => x.name === "fablecut_frame").description;
+  assert.match(desc, /VISION-CAPABLE/i, "the description must flag the vision requirement");
+  assert.match(desc, /text:\s?true/i, "the description must point at the text mode");
+  assert.match(desc, /analyze_reference/, "it must offer analyze_reference as the text-only route");
 });
 
 test("GET /api/frame is only reachable from this machine", async (t) => {

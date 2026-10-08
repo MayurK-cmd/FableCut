@@ -14,6 +14,7 @@
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
+const Stats = require("./frame-stats");
 
 const SR = 22050;      // analysis sample rate
 const HOP = 512;       // onset-envelope hop size (~23 ms)
@@ -202,12 +203,23 @@ async function extractMusic(file, outDir) {
 
    A single frame is an input seek (-ss before -i): ffmpeg jumps to the keyframe
    at or before t and decodes forward, which is accurate and far cheaper than
-   decoding everything up to t. Output goes to a pipe, not a temp file. */
+   decoding everything up to t. Output goes to a pipe, not a temp file.
+
+   Every grab also returns measurements (frame-stats.js) alongside the pixels,
+   because the model on the other end of the MCP socket may not be able to see
+   the image. One decode, two answers: the JPEG and the numbers. */
 
 const MAX_SHEET_FRAMES = 60;   // one tile filter pass; more is a wall of thumbnails
 const MAX_SHEET_COLS = 12;
 const MIN_WIDTH = 32;
 const MAX_WIDTH = 3840;
+/* Measurements are taken from a decode this size, independent of the JPEG's:
+   a colour histogram over a few thousand pixels says exactly as much as one
+   over a few hundred thousand, and the mean luma of a downscaled frame is
+   cleaner (no JPEG ringing around edges). */
+const STATS_WIDTH = 64;
+/* …and one contact-sheet cell's width, for the same reason. */
+const STATS_CELL_W = 48;
 
 function checkWidth(w) {
   const n = Math.round(Number(w) || 0);
@@ -220,22 +232,31 @@ function checkQuality(q) {
   if (!Number.isFinite(n) || n < 1 || n > 31) throw new Error("quality must be 1–31 (ffmpeg -q:v, lower is better)");
   return n;
 }
-/** Run an ffmpeg graph that writes one JPEG to stdout.
+/** Run an ffmpeg graph and hand back raw bytes.
  *  `pre` sits BEFORE -i (input seek), `post` after it (-t bounds the decode);
  *  `filter` is -vf. */
-async function jpegOut(file, pre, filter, quality, post = []) {
+async function pipeOut(file, pre, filter, post, fmtArgs) {
   const args = ["-hide_banner", "-nostats", "-loglevel", "error", ...(pre || []), "-i", file];
-  args.push(...post, "-an", "-sn", "-dn", "-vf", filter, "-frames:v", "1",
-    "-c:v", "mjpeg", "-q:v", String(quality), "-f", "image2pipe", "-");
+  args.push(...(post || []), "-an", "-sn", "-dn", "-vf", filter, ...fmtArgs);
   const r = await run("ffmpeg", args, { binary: true });
-  // ffmpeg exits 0 with an empty pipe when it decoded nothing at all.
-  if (!r.stdout || r.stdout.length < 4 || r.stdout[0] !== 0xff || r.stdout[1] !== 0xd8)
-    throw new Error("ffmpeg produced no frame — is the timestamp inside the clip? (has video?)");
+  if (!r.stdout || !r.stdout.length) throw new Error("ffmpeg produced nothing — is the timestamp inside the clip? (has video?)");
   return r.stdout;
 }
+/** One JPEG of a frame, for the model to look at. */
+const jpegOut = (file, pre, filter, quality, post) =>
+  pipeOut(file, pre, filter, post, ["-frames:v", "1", "-c:v", "mjpeg", "-q:v", String(quality), "-f", "image2pipe", "-"])
+    .then((buf) => {
+      if (buf[0] !== 0xff || buf[1] !== 0xd8)
+        throw new Error("ffmpeg produced no frame — is the timestamp inside the clip? (has video?)");
+      return buf;
+    });
+/** One raw RGB24 decode of the same frame, to measure. */
+const rgbOut = (file, pre, filter, post) =>
+  pipeOut(file, pre, filter, post, ["-frames:v", "1", "-f", "rawvideo", "-pix_fmt", "rgb24", "-"]);
 
-/** One still at `t` seconds. Returns {jpeg, time, …}. */
-async function frame(file, { t = 0, width = 768, quality } = {}) {
+/** The graph every single-frame call shares, at two sizes. */
+/** One still at `t` seconds. Returns {jpeg, time, stats, …}. */
+async function frame(file, { t = 0, width = 768, quality, stats = true } = {}) {
   if (!fs.existsSync(file)) throw new Error("File not found: " + file);
   const at = Number(t);
   if (!Number.isFinite(at) || at < 0) throw new Error("t must be seconds ≥ 0");
@@ -246,16 +267,23 @@ async function frame(file, { t = 0, width = 768, quality } = {}) {
   const info = await probe(file);
   if (!info.hasVideo) throw new Error("the file has no video track — there is no frame to look at");
   if (at >= info.duration) throw new Error(`t=${at} is past the end of the clip (${info.duration}s)`);
-  // -ss before -i: ffmpeg jumps to the keyframe at or before t and decodes
-  // forward to it, which is both accurate and far cheaper than decoding the
-  // whole file up to t.
-  const jpeg = await jpegOut(file, ["-ss", String(at)], `scale=${w}:-2:flags=bilinear`, q);
-  return { jpeg, time: at, width: w, frames: 1, duration: info.duration };
+  const pre = ["-ss", String(at)]; // seek to the keyframe before t, decode forward
+  const jpeg = await jpegOut(file, pre, `scale=${w}:-2:flags=bilinear`, q);
+  let measured = null;
+  if (stats) {
+    /* -2 rounds the height to an even number, so the real pixel count can
+       differ from width*height by one row; derive the height from the bytes
+       rather than assuming it. */
+    const raw = await rgbOut(file, pre, `scale=${STATS_WIDTH}:-2:flags=bilinear`);
+    const h = Math.max(1, Math.round(raw.length / 3 / STATS_WIDTH));
+    if (raw.length >= 3 * STATS_WIDTH) measured = Stats.describe(raw, STATS_WIDTH, h);
+  }
+  return { jpeg, time: at, width: w, frames: 1, duration: info.duration, stats: measured };
 }
 
 /** N frames spread across the whole clip in one grid image (left→right, top→bottom).
     Returns {jpeg, times[], cols, rows, …}. Cell i is the frame at times[i]. */
-async function frameGrid(file, { frames = 12, cols = 4, from = 0, to, width = 320, quality } = {}) {
+async function frameGrid(file, { frames = 12, cols = 4, from = 0, to, width = 320, quality, stats = true } = {}) {
   if (!fs.existsSync(file)) throw new Error("File not found: " + file);
   const info = await probe(file);
   if (!info.hasVideo) throw new Error("the file has no video track — there is no frame to look at");
@@ -281,9 +309,25 @@ async function frameGrid(file, { frames = 12, cols = 4, from = 0, to, width = 32
   /* tile packs cols×rows input frames into one output frame and pads the final
      row with black if the input runs out — the mid-bin sampling above only
      misses by a frame at the very end, never a whole cell. */
-  const jpeg = await jpegOut(file, pre,
-    `fps=${fps.toFixed(6)},scale=${w}:-2:flags=bilinear,tile=${c}x${rows}`, q, ["-t", String(span)]);
-  return { jpeg, times, cols: c, rows, width: w, frames: n, duration: info.duration };
+  const graph = `fps=${fps.toFixed(6)},scale=${w}:-2:flags=bilinear,tile=${c}x${rows}`;
+  const jpeg = await jpegOut(file, pre, graph, q, ["-t", String(span)]);
+
+  let measured = null;
+  if (stats !== false) {
+    /* Measure the same grid with tiny cells — 48px wide is plenty for a
+       histogram, a mean luma and a per-cell difference, and keeps the second
+       decode cheap. scale=-2 keeps the cell's aspect, so the cell height
+       follows from the pixel count: the grid holds cols×rows cells of
+       STATS_CELL_W, and the byte count says how tall they came out. */
+    const graph2 = `fps=${fps.toFixed(6)},scale=${STATS_CELL_W}:-2:flags=bilinear,tile=${c}x${rows}`;
+    const raw = await rgbOut(file, pre, graph2, ["-t", String(span)]);
+    const gw = c * STATS_CELL_W;
+    const gh = Math.round(raw.length / 3 / gw);
+    measured = gh >= rows
+      ? Stats.describeGrid(raw, gw, gh, c, rows, times)
+      : null;
+  }
+  return { jpeg, times, cols: c, rows, width: w, frames: n, duration: info.duration, stats: measured };
 }
 
 /* ── Main entry ──
