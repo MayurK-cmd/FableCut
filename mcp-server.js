@@ -3,6 +3,8 @@
    Zero-dependency stdio JSON-RPC (Model Context Protocol).
 
    Register once for all Claude Code sessions:
+     claude mcp add -s user fablecut -- npx -y fablecut mcp
+   or, from a clone:
      claude mcp add -s user fablecut -- node "<path-to>/fablecut/mcp-server.js"
 
    Tools: fablecut_status, fablecut_docs, fablecut_get_project,
@@ -1379,7 +1381,7 @@ async function handle(msg) {
         result: {
           protocolVersion: negotiateProtocolVersion(params?.protocolVersion),
           capabilities: { tools: {} },
-          serverInfo: { name: "fablecut", version: "1.11.0" },
+          serverInfo: { name: "fablecut", version: "1.12.0" },
         },
       });
     }
