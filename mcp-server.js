@@ -7,11 +7,11 @@
    or, from a clone:
      claude mcp add -s user fablecut -- node "<path-to>/fablecut/mcp-server.js"
 
-   Tools: fablecut_status, fablecut_docs, fablecut_get_project,
-          fablecut_set_project, fablecut_patch_project, fablecut_import_media,
-          fablecut_analyze_reference, fablecut_encode_profiles,
-          fablecut_normalize_audio, fablecut_auto_duck, fablecut_export,
-          fablecut_scopes
+    Tools: fablecut_status, fablecut_docs, fablecut_get_project,
+           fablecut_set_project, fablecut_patch_project, fablecut_import_media,
+           fablecut_analyze_reference, fablecut_frame, fablecut_encode_profiles,
+           fablecut_normalize_audio, fablecut_auto_duck, fablecut_export,
+           fablecut_scopes
    ═══════════════════════════════════════════════════════════════════════════ */
 "use strict";
 const fs = require("fs");
@@ -166,6 +166,25 @@ const TOOLS = [
         force: { type: "boolean", description: "Overwrite even if the project changed since it was last read (discards those external/user changes). Only when the user explicitly asks." },
       },
       required: ["project"],
+    },
+  },
+  {
+    name: "fablecut_frame",
+    description: "LOOK at the footage — returns an actual image you can see, not just numbers. Two modes. (1) A source clip: pass `path` (absolute, or an existing /media/… src) and `t` in seconds to get that exact frame as a JPEG. (2) A contact sheet: pass `frames` (2–60) to get one grid image with that many moments spread across the clip (add `from`/`to` to survey part of it) — the cheap way to see what a whole clip holds. With no path, `time` instead renders the COMPOSED TIMELINE at that moment through the editor's own compositor, graded and multi-track, exactly as export would. Use this before choosing a clip's `in` point or when picking footage to match a blueprint's shots[] energy — seeing beats guessing from a number. Needs ffmpeg on PATH (the timeline mode runs in the open editor tab, else a headless browser).",
+    inputSchema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Source clip to look at: an absolute file path or an existing '/media/…' src. Omit to render the timeline instead." },
+        t: { type: "number", description: "Seconds into the source clip (default 0). Ignored when `frames` is passed." },
+        time: { type: "number", description: "TIMELINE seconds to render, when `path` is omitted (default: the editor's playhead)" },
+        frames: { type: "number", description: "Contact-sheet mode: number of moments to sample across the clip, 2–60 (default 12)" },
+        cols: { type: "number", description: "Contact-sheet columns (default 4)" },
+        from: { type: "number", description: "Contact sheet: start of the range to survey (default 0)" },
+        to: { type: "number", description: "Contact sheet: end of the range (default: the clip's duration)" },
+        width: { type: "number", description: "Pixel width of the returned image (default 768 for one frame, 320 per cell for a sheet)" },
+        where: { type: "string", enum: ["auto", "tab", "headless"], description: "Timeline mode only: auto (default): an open editor tab, else headless · tab · headless" },
+        timeout: { type: "number", description: "Timeline mode: seconds to wait for the render (default 60)" },
+      },
     },
   },
   {
@@ -603,6 +622,121 @@ async function exportTool(args) {
   return describeExportJob(job);
 }
 
+/* ── Frames (fablecut_frame) ──
+   The tool is the only one that answers with an image, so it returns content
+   blocks rather than a string. Text comes FIRST: it carries the coordinates of
+   what is in the picture (src, timestamp, dimensions), which is the part an
+   agent would otherwise have to guess at, and it keeps the existing
+   content[0].text reading in the test harness valid. */
+
+/** {mimeType, data:Buffer} → an MCP image content block. */
+function imageBlock(mimeType, buf) {
+  return { type: "image", data: buf.toString("base64"), mimeType };
+}
+/** A data: URL from the compositor → an image content block, or null. */
+function imageBlockFromDataUrl(url) {
+  const m = /^data:(image\/\w+);base64,(.+)$/.exec(String(url || ""));
+  return m ? { type: "image", data: m[2], mimeType: m[1] } : null;
+}
+
+/** Raw GET to the editor server → {status, headers, buffer}. */
+function apiBytes(urlPath) {
+  return new Promise((resolve, reject) => {
+    const req = http.request(API + urlPath, { method: "GET" }, (r) => {
+      const chunks = [];
+      r.on("data", (c) => chunks.push(c));
+      r.on("end", () => resolve({ status: r.statusCode, headers: r.headers, body: Buffer.concat(chunks) }));
+    });
+    req.on("error", reject);
+    req.setTimeout(60_000, () => req.destroy(new Error("the editor server did not answer")));
+    req.end();
+  });
+}
+
+async function frameTool(args) {
+  /* Timeline mode: no path. The compositor lives in the browser, so this rides
+     the same job queue the scopes reading uses, with image:true. */
+  if (!args.path) {
+    if (!(await ensureUIServer())) throw new Error(`the editor server is not running and could not be started on port ${PORT}`);
+    const body = { where: args.where || "auto", image: true };
+    if (args.time != null) body.time = args.time;
+    const r = await apiJSON("POST", "/api/scopes/request", body);
+    if (r.status !== 200) throw new Error(r.body?.error || `frame request failed (${r.status})`);
+    let job = r.body;
+    const deadline = Date.now() + 1000 * (Number.isFinite(args.timeout) && args.timeout > 0 ? args.timeout : 60);
+    while (job.status === "pending" || job.status === "running") {
+      if (Date.now() > deadline) {
+        await apiJSON("POST", "/api/export/job/cancel?id=" + encodeURIComponent(job.id));
+        throw new Error("timed out waiting for the editor to render the frame");
+      }
+      await sleep(300);
+      const q = await apiJSON("GET", "/api/export/job?id=" + encodeURIComponent(job.id));
+      if (q.status !== 200) throw new Error(q.body?.error || "lost track of the frame render");
+      job = q.body;
+    }
+    if (job.status !== "done") throw new Error(`frame render ${job.status}: ${job.error || "no reason given"}`);
+    const res = job.result || {};
+    const img = imageBlockFromDataUrl(res.image);
+    if (!img) throw new Error("the editor rendered the frame but could not encode it as an image (a cross-origin source taints the canvas)");
+    const onScreen = (res.clips || []).map((c) => `${c.id} ${c.track} ${c.kind}`).join(", ") || "nothing";
+    return [
+      { type: "text", text: `Timeline at ${res.time}s (${res.frame?.w}x${res.frame?.h}) — on screen: ${onScreen}` },
+      img,
+    ];
+  }
+
+  /* Source mode: ffmpeg on the server. Resolve the path the same way
+     fablecut_analyze_reference does — an absolute file is read where it is,
+     a /media/… src stays in media/. */
+  if (!(await ensureUIServer())) throw new Error(`the editor server is not running and could not be started on port ${PORT}`);
+  const raw = String(args.path);
+  let src;
+  if (/^\/media\//i.test(raw)) {
+    src = raw; // served as-is; the server re-checks the root
+  } else {
+    if (!fs.existsSync(raw) || !fs.statSync(raw).isFile()) throw new Error("File not found: " + raw);
+    if (path.dirname(path.resolve(raw)).toLowerCase() !== MEDIA_DIR.toLowerCase()) {
+      if (!fs.existsSync(MEDIA_DIR)) fs.mkdirSync(MEDIA_DIR, { recursive: true });
+      const ext = path.extname(raw);
+      const stem = path.basename(raw, ext).replace(/[^\w.\- ()\[\]]+/g, "_");
+      let target = path.join(MEDIA_DIR, stem + ext);
+      let i = 1;
+      while (fs.existsSync(target)) target = path.join(MEDIA_DIR, `${stem}_${i++}${ext}`);
+      fs.copyFileSync(raw, target);
+      raw = target;
+    }
+    src = "/media/" + encodeURIComponent(path.basename(raw));
+  }
+
+  const q = new URLSearchParams({ src });
+  if (args.frames != null) {
+    q.set("frames", String(Math.round(Number(args.frames))));
+    q.set("cols", String(Math.round(Number(args.cols) || 4)));
+    if (args.from != null) q.set("from", String(args.from));
+    if (args.to != null) q.set("to", String(args.to));
+    q.set("w", String(args.width || 320));
+  } else {
+    q.set("t", String(Number.isFinite(args.t) ? args.t : 0));
+    q.set("w", String(args.width || 768));
+  }
+  if (args.quality != null) q.set("q", String(args.quality));
+
+  const res = await apiBytes("/api/frame?" + q.toString());
+  if (res.status !== 200) {
+    let msg = `frame request failed (${res.status})`;
+    try { msg = JSON.parse(res.body.toString("utf8")).error || msg; } catch { /* not JSON */ }
+    throw new Error(msg);
+  }
+  const times = (res.headers["x-fablecut-frame-times"] || "").split(",").filter(Boolean);
+  const type = res.headers["content-type"] || "image/jpeg";
+  if (res.body.length < 4 || res.body[0] !== 0xff || res.body[1] !== 0xd8)
+    throw new Error("the server did not return a JPEG");
+  const head = args.frames != null
+    ? `Contact sheet — ${times.length} moments across ${res.headers["x-fablecut-frame-source"]}, left→right then top→bottom, at ${times.join("s, ")}s.`
+    : `Frame at ${times[0] ?? 0}s of ${res.headers["x-fablecut-frame-source"]}.`;
+  return [{ type: "text", text: head }, imageBlock(type, res.body)];
+}
+
 /* ── Scopes (fablecut_scopes): one graded still, measured in the editor ── */
 function describeScopes(j) {
   if (j.status !== "done") return `Scope reading ${j.id} ${j.status}${j.error ? ": " + j.error : ""}`;
@@ -654,6 +788,8 @@ async function callTool(name, args, attempt = 0) {
       return exportTool(args);
     case "fablecut_scopes":
       return scopesTool(args);
+    case "fablecut_frame":
+      return frameTool(args);
     case "fablecut_denoise":
       return denoiseTool(args);
     case "fablecut_status": {
@@ -1389,8 +1525,11 @@ async function handle(msg) {
     if (method === "tools/call") {
       pending++;
       try {
-        const text = await callTool(params.name, params.arguments || {});
-        send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text }] } });
+        const out = await callTool(params.name, params.arguments || {});
+        /* A tool may answer with ready-made content blocks (fablecut_frame
+           returns an image); everything else answers with a string. */
+        const content = Array.isArray(out) ? out : [{ type: "text", text: String(out) }];
+        send({ jsonrpc: "2.0", id, result: { content } });
       } catch (e) {
         send({ jsonrpc: "2.0", id, result: { content: [{ type: "text", text: "Error: " + e.message }], isError: true } });
       } finally {
