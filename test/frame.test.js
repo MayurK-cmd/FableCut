@@ -263,9 +263,10 @@ test("fablecut_frame returns an image the agent can look at", { skip: !hasFfmpeg
 
 test("fablecut_frame without a path is a timeline render, and says so", async (t) => {
   // No editor tab and no browser here: the request must fail with a readable
-  // reason rather than hanging or killing the server.
+  // reason rather than hanging or killing the server. Use FABLECUT_NO_FS_WATCH
+  // so ensureUIServer doesn't spawn a detached server.js that never stops.
   const dir = makeDataDir(t);
-  const mcp = startMcp(t, dir, { FABLECUT_PORT: String(await freePort()) });
+  const mcp = startMcp(t, dir, { FABLECUT_PORT: String(await freePort()), FABLECUT_NO_FS_WATCH: "1" });
   await mcp.request("initialize", { protocolVersion: "2025-11-25" });
   const res = await mcp.callTool("fablecut_frame", { time: 1.5, where: "headless" });
   assert.equal(res.isError, true, res.text);

@@ -767,7 +767,10 @@ const server = http.createServer(async (req, res) => {
       try {
         meta = JSON.parse(fs.readFileSync(cache.replace(/\.jpg$/, ".json"), "utf8"));
       } catch { /* render below */ }
-      if (!fs.existsSync(cache)) {
+      // Self-healing: if the JPEG exists but meta doesn't, re-render so both are
+      // written together. A partial write (JPEG with no meta) otherwise serves
+      // 500 forever because meta stays null.
+      if (!fs.existsSync(cache) || !meta) {
         const r = isSheet ? await frameGrid(file, opts) : await frame(file, opts);
         meta = isSheet
           ? { frames: r.frames, cols: r.cols, rows: r.rows, times: r.times, duration: r.duration, cellWidth: r.width, stats: r.stats }
@@ -793,7 +796,7 @@ const server = http.createServer(async (req, res) => {
         "Content-Length": fs.statSync(cache).size,
         "Cache-Control": "no-cache",
         "X-FableCut-Frame-Times": (meta.times || []).join(","),
-        "X-FableCut-Frame-Source": src,
+        "X-FableCut-Frame-Source": encodeURI(meta.source || src),
       });
       fs.createReadStream(cache).pipe(res);
     } catch (e) {

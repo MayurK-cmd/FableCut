@@ -745,7 +745,7 @@ async function frameTool(args) {
   }
   const times = (res.headers["x-fablecut-frame-times"] || "").split(",").filter(Boolean);
   const type = res.headers["content-type"] || "image/jpeg";
-  const source = res.headers["x-fablecut-frame-source"] || raw;
+  const source = decodeURI(res.headers["x-fablecut-frame-source"] || "") || raw;
   const head = args.frames != null
     ? `Contact sheet — ${times.length} moments across ${source}, left→right then top→bottom, at ${times.join("s, ")}s.`
     : `Frame at ${times[0] ?? 0}s of ${source}.`;

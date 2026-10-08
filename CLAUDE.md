@@ -821,12 +821,17 @@ inferring it from an `energy` value.
 | `{path:"/media/x.mp4", frames:12}` | a 4×3 contact sheet across the whole clip |
 | `{path:"/media/x.mp4", frames:12, from:30, to:90}` | a contact sheet across part of it |
 | `{time:8.5}` (no `path`) | the **composed timeline** at 8.5 s, graded, all tracks |
-| `{path}` with an absolute path | the file is copied into `media/` first |
+| `{path}` with an absolute path | the file is read in place without copying into `media/` |
+| `{path, text:true}` | text-only statistics (luma, colors, texture, saturation, motion) for non-vision agents |
 
 Each answer leads with a text line naming the source, the timestamp(s) and (in
 timeline mode) the clips on screen, so you always know what you are looking at.
 `width` sets the pixel width (default 768 for one frame, 320 per contact-sheet
-cell); `where`/`timeout` apply to timeline mode only.
+cell); `text:true` returns descriptive statistics instead of an image block, for
+agents without vision capability; `where`/`timeout` apply to timeline mode only.
+
+The REST endpoint `/api/frame` accepts `src`, `t`, `frames`, `from`, `to`, `w`,
+`q` (JPEG quality 1–31) and `text=1` (statistics mode) as query parameters.
 
 **When it pays.** Before choosing a clip's `in` point, sample a few candidate
 moments — the blueprint tells you a shot spans 2.1 s–4.9 s and reads
