@@ -48,6 +48,9 @@ const DEFAULT_PROPS = {
   x: 0, y: 0, scale: 1, rotation: 0, opacity: 1, volume: 1, pan: 0,
   anchorX: 0, anchorY: 0,                      // anchor point, px from the picture's centre (motion.js)
   trimStart: 0, trimEnd: 100, trimOffset: 0,   // shape layers: the part of every path that draws (%)
+  autoOrient: false,                           // turn along the motion path
+  pathOffset: 0, pathAlign: "start",           // text on a path: where along it (%), which end sits there
+  motionBlur: 0, motionBlurSamples: 8,         // shutter angle (°, 0 = off) and sub-frame samples
   gain: 0,                                     // clip gain, dB — applied before volume
   channelMode: "stereo",                       // stereo | mono | left | right | swap
   duck: 0,                                     // ducking, dB (≤ 0) — keyframed by Auto-duck, multiplies volume
@@ -79,7 +82,7 @@ const DEFAULT_PROPS = {
 const ANIMATABLE = ["x", "y", "scale", "rotation", "opacity", "volume", "pan", "duck", "speed",
   "brightness", "contrast", "saturation", "hue", "blur", "grayscale", "sepia", "invert",
   "temperature", "tint", "vignette", "cornerRadius", "shake", "rgbSplit", "grain",
-  "fontSize", "letterSpacing", "glow", "anchorX", "anchorY", "trimStart", "trimEnd", "trimOffset"];
+  "fontSize", "letterSpacing", "glow", "anchorX", "anchorY", "trimStart", "trimEnd", "trimOffset", "pathOffset"];
 const TRANSITIONS = ["none", "fade", "slide-left", "slide-right", "slide-up", "slide-down",
   "zoom", "wipe", "wipe-right", "wipe-up", "wipe-down", "iris", "spin", "blur", "whip",
   "glitch", "pop"];
@@ -925,7 +928,16 @@ function propsAtPlayhead(c) {
     const v = kfChannel(c, k, local, +(p[k] ?? DEFAULT_PROPS[k] ?? 0));
     if (typeof v === "number" && !isNaN(v)) p[k] = v;
   }
+  applyMotionPath(c, p, local, false);
   return p;
+}
+/* Motion path (motion.js): position keys with spatial handles move the clip along a
+   curve; auto-orient turns it with its direction of travel. */
+function applyMotionPath(c, p, local, orient) {
+  if (!c.keyframes || !c.keyframes.x || !c.keyframes.y) return;
+  const q = self.FableCutMotion.pathPositionAt(c, local);
+  if (q) { p.x = q.x; p.y = q.y; }
+  if (orient && p.autoOrient) { const a = self.FableCutMotion.orientAt(c, local); if (a != null) p.rotation = (+p.rotation || 0) + a; }
 }
 function fmtInspNum(v, step) {
   const n = +v;
@@ -984,6 +996,11 @@ function setAnimProp(c, k, v) {
   const eps = kfTimeEps();
   const dup = arr.find((kf) => Math.abs(kf.t - lt) < eps);
   if (dup) { dup.v = v; return true; }
+  const other = k === "x" ? "y" : k === "y" ? "x" : null, oarr = other && c.keyframes[other];
+  if (other && Array.isArray(oarr) && oarr.length && self.FableCutMotion.hasPathHandles(c) && !oarr.some((kf) => Math.abs(kf.t - lt) < eps)) {
+    oarr.push({ t: lt, v: +self.FableCutMotion.positionAt(c, lt)[other].toFixed(3) });
+    oarr.sort((a, b) => a.t - b.t);
+  }
   arr.push({ t: lt, v });
   arr.sort((a, b) => a.t - b.t);
   state.dirtyTimeline = true;
@@ -5006,6 +5023,8 @@ function renderInspector(lite) {
   const curveSel = (label, k, tr) => tr?.type === "fade" && c.kind === "audio"
     ? row(label, `<select data-k="${k}" title="Fade shape (audio)">${[["", "Smooth (eased)"], ...Object.entries(AUDIO_FADE_CURVES)].map(([v, l]) =>
       `<option value="${v}" ${(tr.curve || "") === v ? "selected" : ""}>${l}</option>`).join("")}</select>`) : "";
+  if (c.kind === "text") html += textPathSectionHtml(c, p, row);
+  if (isVisualClip(c)) html += motionSectionHtml(c, p, row);
   if (c.kind !== "audio" && c.kind !== "null") html += maskSectionHtml(c);
   if (c.kind === "video") html += trackSectionHtml(c);
   html += `<div class="insp-section"><h3>Transition</h3>
@@ -5268,6 +5287,8 @@ function renderInspector(lite) {
   bindTrackControls(c);
   bindParentAnchorControls(c);
   bindShapeControls(c);
+  bindMotionControls(c);
+  bindTextPathControls(c);
   syncInspectorOffClip(c);
   renderKfGraphsPanel();
 }
@@ -5367,7 +5388,7 @@ const KF_GRAPH_LABEL = {
   invert: "Invert", temperature: "Temp", tint: "Tint", vignette: "Vignette",
   cornerRadius: "Radius", shake: "Shake", rgbSplit: "RGB", grain: "Grain",
   fontSize: "Size", letterSpacing: "Track", glow: "Glow",
-  anchorX: "Anchor X", anchorY: "Anchor Y", trimStart: "Trim start", trimEnd: "Trim end", trimOffset: "Trim offset",
+  anchorX: "Anchor X", anchorY: "Anchor Y", trimStart: "Trim start", trimEnd: "Trim end", trimOffset: "Trim offset", pathOffset: "Path offset",
 };
 function toggleKfGraph(key) {
   if (!ANIMATABLE.includes(key)) return;
@@ -8255,6 +8276,7 @@ function evalProps(c, t) {
       }
       if (typeof v === "number" && !isNaN(v)) p[k] = v;
     }
+    applyMotionPath(c, p, local, true);
   }
   applyFilterPreset(p);
   const W = els.preview.width, H = els.preview.height;
@@ -8926,6 +8948,8 @@ const NULL_HALF = 40;
 function layerBox(c, p, W, H, t) {
   const sc = +p.scale || 1;
   if (c.kind === "text") {
+    const tb = p.textPath ? textPathBox(c, p, t) : null;
+    if (tb) return tb;
     if (hasTextBox(p)) return { ox: 0, oy: 0, hw: +p.boxW / 2, hh: +p.boxH / 2 };
     const half = measureTextHalfSize(p);
     return { ox: 0, oy: 0, hw: half.hw, hh: half.hh };
@@ -9003,6 +9027,7 @@ function drawSelectionOverlay(W, H, t) {
   drawTrackOverlay(c, W);
   if (!isVisualClip(c) || !activeAt(c, t) || !clipRenders(c)) return;
   if (shapeEditActive(c) && drawShapeOverlay(c, W, H, t)) return;   // a picked shape item replaces the box
+  drawMotionPathOverlay(c, W, H, t);
   const ep = evalProps(c, t), b = clipBounds(c, ep, W, H, t);
   if (c.kind === "null") drawNullMark(b, W, 1);
   const lw = Math.max(2, W / 640);
@@ -9092,7 +9117,7 @@ els.preview.addEventListener("pointerdown", (e) => {
       const ep = propsAtPlayhead(cur);
       canvasDrag = { mode: "rotate", id: cur.id, startRot: +ep.rotation || 0, startAng: Math.atan2(pt.y - b.cy, pt.x - b.cx), cx: b.cx, cy: b.cy };
     } else if (hd.corners.some((h) => Math.abs(pt.x - h.x) <= grab && Math.abs(pt.y - h.y) <= grab)) {
-      if (cur.kind === "text") {
+      if (cur.kind === "text" && !cur.props.textPath) {   // a title on a path scales; its box is the path's
         canvasDrag = {
           ...beginTextBoxDrag(cur, pt, W, H),
           seedBox: !hasTextBox(cur.props),
@@ -9263,9 +9288,76 @@ els.preview.addEventListener("pointercancel", endCanvasDrag);
 
 function drawClip(c, W, H, t, asMatte = false) {
   if (c.kind === "null") return;   // a null only carries a transform for its children
+  if (+c.props.motionBlur > 0 && c.kind !== "adjust" && drawMotionBlurred(c, W, H, t, asMatte)) return;
+  drawClipCut(c, W, H, t, asMatte, false);
+}
+/** The clip cut by its masks / matte. raw: no opacity or blend (a motion-blur sample). */
+function drawClipCut(c, W, H, t, asMatte, raw) {
   const masks = clipMasksAt(c, t), matte = asMatte ? null : clipMatte(c);
-  if (masks || matte) drawMaskedClip(c, W, H, t, masks, matte);
-  else drawClipPicture(c, W, H, t, false);
+  if (masks || matte) drawMaskedClip(c, W, H, t, masks, matte, raw);
+  else drawClipPicture(c, W, H, t, raw);
+}
+/* ── Motion blur: the clip drawn at sub-frame times across the shutter and
+   averaged (premultiplied, "lighter" at 1/n each), then composited once with its
+   opacity and blend. Preview and export share it; preview playback uses fewer samples. */
+function drawMotionBlurred(c, W, H, t, asMatte) {
+  const fps = projectFps() || 30, span = clamp(+c.props.motionBlur, 0, 720) / 360 / fps;
+  let n = clamp(Math.round(+c.props.motionBlurSamples || 8), 2, 32);
+  // playback: as many samples as fit in ~12 ms (all of them on a fast machine); a paused frame and export use them all
+  const live = state.playing && !state.exporting, cost = live && (runtime.mbCost ||= new Map()).get(c.id);
+  if (cost) n = clamp(Math.floor(12 / cost), 2, n);
+  const began = live ? performance.now() : 0;
+  const lo = c.start, hi = clipEnd(c) - 1e-4;
+  const t0 = clamp(t - span / 2, lo, hi), t1 = clamp(t + span / 2, lo, hi);
+  if (t1 - t0 < 1e-6 || !clipMovesBetween(c, t0, t1, W, H)) return false;
+  // a blurred clip on a matte track blurs inside this one's samples: each depth has its own buffers
+  const depth = runtime.mbDepth = (runtime.mbDepth || 0) + 1;
+  const acc = maskCtx("mbAcc" + depth, W, H), smp = maskCtx("mbSmp" + depth, W, H);
+  const main = ctx2d;
+  try {
+    acc.setTransform(1, 0, 0, 1, 0, 0); acc.globalAlpha = 1; acc.globalCompositeOperation = "source-over"; acc.filter = "none";
+    acc.clearRect(0, 0, W, H);
+    acc.fillStyle = "#000";
+    for (let i = 0; i < n; i++) {
+      const ts = t0 + (t1 - t0) * i / (n - 1);
+      smp.setTransform(1, 0, 0, 1, 0, 0); smp.globalAlpha = 1; smp.globalCompositeOperation = "source-over"; smp.filter = "none";
+      smp.clearRect(0, 0, W, H);
+      ctx2d = smp;
+      try { drawClipCut(c, W, H, ts, asMatte, true); } finally { ctx2d = main; }
+      // running average, exact in transparent areas too: acc = acc·(1−a) + sample·a with a = 1/(i+1).
+      // (Adding every sample at 1/n instead rounds each 8-bit contribution and bands the result.)
+      const a = 1 / (i + 1);
+      if (i > 0) { acc.globalCompositeOperation = "destination-in"; acc.globalAlpha = 1 - a; acc.fillRect(0, 0, W, H); }
+      acc.globalCompositeOperation = "lighter"; acc.globalAlpha = a;
+      acc.drawImage(smp.canvas, 0, 0);
+    }
+  } finally { runtime.mbDepth = depth - 1; ctx2d = main; }
+  acc.globalCompositeOperation = "source-over"; acc.globalAlpha = 1;
+  if (live) { const per = (performance.now() - began) / n, prev = runtime.mbCost.get(c.id); runtime.mbCost.set(c.id, prev ? prev * 0.7 + per * 0.3 : per); }
+  const p = evalProps(c, t);
+  main.save();
+  main.setTransform(1, 0, 0, 1, 0, 0);
+  main.globalAlpha = clamp(p.opacity, 0, 1);
+  main.globalCompositeOperation = p.blend && p.blend !== "normal" && BLEND_MODES.includes(p.blend) ? p.blend : "source-over";
+  main.filter = "none";
+  main.drawImage(acc.canvas, 0, 0);
+  main.restore();
+  return true;
+}
+/** Does the clip move (or its shapes change) between t0 and t1? Still clips draw once. */
+function clipMovesBetween(c, t0, t1, W, H) {
+  if (c.kind === "shape" && (shapeKeyed(c) || c.keyframes?.trimStart || c.keyframes?.trimEnd || c.keyframes?.trimOffset)) return true;
+  const a = clipBounds(c, evalProps(c, t0), W, H, t0), b = clipBounds(c, evalProps(c, t1), W, H, t1);
+  const corners = (q) => [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([sx, sy]) => {
+    const cs = Math.cos(q.rot), sn = Math.sin(q.rot), x = sx * q.hw, y = sy * q.hh;
+    return [q.cx + x * cs - y * sn, q.cy + x * sn + y * cs];
+  });
+  const A = corners(a), B = corners(b);
+  return A.some((p, i) => Math.hypot(p[0] - B[i][0], p[1] - B[i][1]) > 0.5);
+}
+function shapeKeyed(c) {
+  const any = (list) => (list || []).some((it) => (it.keys && it.keys.length) || (it.type === "group" && any(it.items)));
+  return any(c.props.shapes);
 }
 /** Draw one clip. `layered`: into a mask layer — opacity and blend wait for
  *  the composite. Returns { p, geom } — geom = where the clip's picture landed
@@ -9323,8 +9415,8 @@ function drawClipPicture(c, W, H, t, layered) {
     return { p, geom };
   }
   if (c.kind === "text") {
-    const b = layerBox(c, p, W, H, t);
-    geom = noteMaskGeom(c, ctx2d.getTransform(), -b.hw, -b.hh, b.hw * 2, b.hh * 2);
+    const b = layerBox(c, p, W, H, t);   // a path's box is usually off the origin (ox / oy)
+    geom = noteMaskGeom(c, ctx2d.getTransform(), (b.ox || 0) - b.hw, (b.oy || 0) - b.hh, b.hw * 2, b.hh * 2);
     drawText(c, p, t - c.start);
     ctx2d.restore();
     return { p, geom };
@@ -9501,7 +9593,7 @@ function makeLumaFilter() {
   } catch { return ""; }
 }
 /** A clip that is cut before it composites: by its masks, by a track matte, or both. */
-function drawMaskedClip(c, W, H, t, masks, matte = null) {
+function drawMaskedClip(c, W, H, t, masks, matte = null, raw = false) {
   const tm = matte ? trackMatteAt(matte, W, H, t) : null;   // first: the matte's clips use the layer buffers too
   const layer = maskCtx("layer", W, H);
   layer.setTransform(1, 0, 0, 1, 0, 0);
@@ -9523,7 +9615,7 @@ function drawMaskedClip(c, W, H, t, masks, matte = null) {
   main.save();
   main.setTransform(1, 0, 0, 1, 0, 0);
   const p = r.p;
-  if (c.kind !== "adjust") {   // an adjustment layer already drew at its own opacity
+  if (c.kind !== "adjust" && !raw) {   // an adjustment layer already drew at its own opacity; a raw sample composites later
     main.globalAlpha = clamp(p.opacity, 0, 1);
     if (p.blend && p.blend !== "normal" && BLEND_MODES.includes(p.blend)) main.globalCompositeOperation = p.blend;
   }
@@ -10585,7 +10677,7 @@ function bindParentAnchorControls(c) {
 function shapeList(c) { return clipShapes(c) || []; }
 function shapeUiFor(c) {
   if (!c || shapeUi.clip !== c.id) Object.assign(shapeUi, { clip: c ? c.id : null, sel: null, pt: -1, tool: null, pen: null, drag: null });
-  if (shapeUi.sel && !Motion.getItem(shapeList(c), shapeUi.sel)) { shapeUi.sel = null; shapeUi.pt = -1; }
+  if (shapeUi.sel && !Motion.getItem(editList(c), shapeUi.sel)) { shapeUi.sel = null; shapeUi.pt = -1; }
   return shapeUi;
 }
 function writeShapes(c, list) {
@@ -10600,10 +10692,10 @@ function shapeKeyIndex(keys, t) {
 }
 const isAnimated = (it, k) => !!(it.keys && it.keys.some((x) => x[k] != null));
 /** The selected item as it is at the playhead. */
-function shapeNow(c, path = shapeUi.sel) { return path ? Motion.getItem(shapeItemsAt(c, state.time), path) : null; }
+function shapeNow(c, path = shapeUi.sel) { return path ? Motion.getItem(editItemsAt(c, state.time), path) : null; }
 /** Change item `path`; values that are animated land in a key at the playhead. */
 function writeShapeSet(c, path, set) {
-  const list = shapeList(c), it = Motion.getItem(list, path);
+  const list = editList(c), it = Motion.getItem(list, path);
   if (!it) return;
   const t = shapeLocalT(c), statics = {}, keyed = {};
   for (const [k, v] of Object.entries(set)) (Motion.KEYED.includes(k) && isAnimated(it, k) ? keyed : statics)[k] = v;
@@ -10617,11 +10709,11 @@ function writeShapeSet(c, path, set) {
     Object.assign(keys[j], keyed);
     next.keys = keys;
   }
-  writeShapes(c, Motion.updateItem(list, path, (x) => Motion.mergeItem(x, next) || x));
+  writeEditList(c, Motion.updateItem(list, path, (x) => Motion.mergeItem(x, next) || x));
 }
 /** ◆ on an item value: key it at the playhead, or remove the key there. */
 function toggleShapeKey(c, path, k) {
-  const list = shapeList(c), it = Motion.getItem(list, path), now = shapeNow(c, path);
+  const list = editList(c), it = Motion.getItem(list, path), now = shapeNow(c, path);
   if (!it || !now || now[k] == null) return;
   const t = shapeLocalT(c), keys = (it.keys || []).map((x) => ({ ...x })), j = shapeKeyIndex(keys, t);
   const set = {};
@@ -10634,7 +10726,7 @@ function toggleShapeKey(c, path, k) {
     if (j >= 0) keys[j][k] = v; else { keys.push({ t: +clamp(t, 0, c.duration).toFixed(4), [k]: v }); keys.sort((a, b) => a.t - b.t); }
   }
   set.keys = keys.length ? keys : null;
-  writeShapes(c, Motion.updateItem(list, path, (x) => Motion.mergeItem(x, set) || x));
+  writeEditList(c, Motion.updateItem(list, path, (x) => Motion.mergeItem(x, set) || x));
 }
 function shapeItemLabel(it, path) { return it.name || `${it.type[0].toUpperCase() + it.type.slice(1)} ${path.map((i) => i + 1).join(".")}`; }
 function shapeSectionHtml(c, p, row) {
@@ -10816,7 +10908,7 @@ function bindShapeControls(c) {
 function syncShapeInspector(c) {
   const root = els.inspector.querySelector("[data-shape-section]");
   if (!root || shapeUi.clip !== c.id || !shapeUi.sel || shapeUi.drag) return;
-  const raw = Motion.getItem(shapeList(c), shapeUi.sel), now = shapeNow(c);
+  const raw = Motion.getItem(editList(c), shapeUi.sel), now = shapeNow(c);
   if (!raw || !now) return;
   const active = document.activeElement, j = shapeKeyIndex(raw.keys, shapeLocalT(c));
   for (const k of Object.keys(SHAPE_ROWS_UI)) {
@@ -10833,17 +10925,26 @@ function syncShapeInspector(c) {
 
 /* ── Shape items on the monitor ── */
 function shapeEditActive(c) {
-  return !!c && c.kind === "shape" && shapeUi.clip === c.id && state.selId === c.id && (!!shapeUi.sel || !!shapeUi.tool) &&
+  return !!c && (c.kind === "shape" || (c.kind === "text" && !!clipTextPath(c)) || (c.kind === "text" && shapeUi.tool === "pen")) && shapeUi.clip === c.id && state.selId === c.id && (!!shapeUi.sel || !!shapeUi.tool) &&
     activeAt(c, state.time) && !state.playing && !maskEditActive(c);
 }
 /** Layer px → canvas px for a shape clip at the playhead. */
 function shapeLayerMatrix(c, W, H, t = state.time) {
   const p = evalProps(c, t);
-  return layerScreenMatrix(c, p, W, H, t).scale(+p.scale || 1);
+  return layerScreenMatrix(c, p, W, H, t).scale(Motion.contentScale(c, p));
+}
+/* The item list the editor works on: a shape layer's items, or a title's path as a one-item list. */
+function editList(c) { return c.kind === "text" ? (clipTextPath(c) ? [clipTextPath(c)] : []) : shapeList(c); }
+function editItemsAt(c, t) { return c.kind === "text" ? (clipTextPath(c) ? [textPathAt(c, t)] : null) : shapeItemsAt(c, t); }
+function writeEditList(c, list) {
+  if (c.kind !== "text") { writeShapes(c, list); return; }
+  const n = list && list[0] ? Motion.normalizeTextPath(list[0]) : null;
+  if (n) c.props.textPath = n; else delete c.props.textPath;
+  state.dirtyTimeline = true; inspPropGen++;
 }
 /** The picked item's frames and handles in canvas px. */
 function shapeHandles(c, W, H) {
-  const items = shapeItemsAt(c, state.time), path = shapeUi.sel, it = path && Motion.getItem(items, path);
+  const items = editItemsAt(c, state.time), path = shapeUi.sel, it = path && Motion.getItem(items, path);
   if (!it) return null;
   const L = shapeLayerMatrix(c, W, H);
   const F = L.multiply(new DOMMatrix(Motion.itemFrame(items, path.slice(0, -1))));   // the space the item's x / y live in
@@ -10912,12 +11013,13 @@ function finishShapePen(c, closed) {
   for (const [x, y] of P) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
   const cx = Math.round((x0 + x1) / 2), cy = Math.round((y0 + y1) / 2);
   const item = { type: "path", x: cx, y: cy, points: P.slice(0, Motion.MAX_POINTS).map(([x, y, ix, iy, ox, oy]) => [x - cx, y - cy, ix, iy, ox, oy].map((v) => +v.toFixed(2))) };
-  if (closed) Object.assign(item, { fill: "#ffffff" }); else Object.assign(item, { closed: false, stroke: "#ffffff", strokeWidth: 8 });
+  if (c.kind === "text") { if (!closed) item.closed = false; }
+  else if (closed) Object.assign(item, { fill: "#ffffff" }); else Object.assign(item, { closed: false, stroke: "#ffffff", strokeWidth: 8 });
   pushUndo();
-  const list = shapeList(c).slice();
+  const list = c.kind === "text" ? [] : editList(c).slice();
   list.push(item);
-  writeShapes(c, list);
-  Object.assign(shapeUi, { sel: [shapeList(c).length - 1], pt: -1, tool: null, pen: null });
+  writeEditList(c, list);
+  Object.assign(shapeUi, { sel: [editList(c).length - 1], pt: -1, tool: null, pen: null });
   scheduleSave(); renderInspector();
 }
 function nearestShapeSegment(h, pt) {
@@ -10935,7 +11037,7 @@ function nearestShapeSegment(h, pt) {
 }
 /** Add or remove points of a path: the base points and every keyed outline change together. */
 function writeShapeTopology(c, path, edit) {
-  writeShapes(c, Motion.updateItem(shapeList(c), path, (it) => Motion.mergeItem(it, {
+  writeEditList(c, Motion.updateItem(editList(c), path, (it) => Motion.mergeItem(it, {
     points: edit(it.points), keys: it.keys ? it.keys.map((k) => (k.points ? { ...k, points: edit(k.points) } : k)) : null,
   }) || it));
 }
@@ -11103,6 +11205,382 @@ window.addEventListener("keydown", (e) => {
     state.dirtyTimeline = true;
   }
 }, true);
+
+/* ── Text on a path ──
+   props.textPath is one shape item (motion.js): its outline is the baseline the
+   title's letters sit on, one line, each letter turned with the path.
+   props.pathOffset (%, keyable) slides the text along it; props.pathAlign says
+   which end of the text sits at the offset. The path is edited on the monitor
+   with the shape editor (its points, handles, move, turn, size and pen). */
+const TEXT_PATH_PRESETS = {
+  line: { label: "Line", item: Motion.TEXT_PATH_PRESETS.line },
+  arc: { label: "Arc", item: Motion.TEXT_PATH_PRESETS.arc },
+  circle: { label: "Circle", item: Motion.TEXT_PATH_PRESETS.circle },
+  wave: { label: "Wave", item: Motion.TEXT_PATH_PRESETS.wave },
+};
+const textPathNorm = new WeakMap();
+function clipTextPath(c) {
+  const v = c && c.kind === "text" && c.props && c.props.textPath;
+  if (!v || typeof v !== "object") return null;
+  let n = textPathNorm.get(v);
+  if (n === undefined) { n = Motion.normalizeTextPath(v); textPathNorm.set(v, n); }
+  return n;
+}
+/** The title's path at timeline t (keys resolved). */
+function textPathAt(c, t) { const n = clipTextPath(c); return n ? Motion.itemAt(n, t - c.start) : null; }
+/** The box of the text on its path, in the title's own px (for the selection box and masks). */
+function textPathBox(c, p, t) {
+  const it = textPathAt(c, t);
+  if (!it) return null;
+  const lines = Math.max(1, String(p.text || "").split("\n").length), size = +p.fontSize || 72, lh = size * lineHeightOf(p);
+  const { A, closed } = Motion.outline(it), m = Motion.itemMatrix(it);
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const off of lines > 1 ? [0, (lines - 1) * lh] : [0]) {   // the first and the last line's tracks
+    for (const [x, y] of Motion.pathSampler(A, closed, off).points) {
+      const [px, py] = Motion.apply(m, x, y);
+      x0 = Math.min(x0, px); y0 = Math.min(y0, py); x1 = Math.max(x1, px); y1 = Math.max(y1, py);
+    }
+  }
+  if (!(x1 >= x0)) return null;
+  const pad = size * 0.8, s = Motion.contentScale(c, p);
+  return { ox: (x0 + x1) / 2 * s, oy: (y0 + y1) / 2 * s, hw: ((x1 - x0) / 2 + pad) * s, hh: ((y1 - y0) / 2 + pad) * s };
+}
+function drawTextOnPath(c, p, local) {
+  const it = textPathAt(c, c.start + local);
+  if (!it) return;
+  const sc = +p.scale || 1, size = +p.fontSize || 72, lh = size * lineHeightOf(p);
+  ctx2d.scale(sc, sc);
+  const m = Motion.itemMatrix(it);
+  ctx2d.transform(m[0], m[1], m[2], m[3], m[4], m[5]);
+  const anim = TEXT_ANIMS.includes(p.textAnim) ? p.textAnim : "none";
+  const rate = clamp(+p.wordRate || 0.15, 0.03, 2);
+  let fam = p.font || "Segoe UI";
+  if (anim === "font-cut") {   // swap the typeface rhythmically, then settle
+    const setF = (Array.isArray(p.fontCutSet) && p.fontCutSet.length) ? p.fontCutSet : FONT_CUT_DEFAULT;
+    setF.forEach(ensureFont);
+    if (local < 0.6) fam = setF[Math.floor(local / 0.06) % setF.length];
+  }
+  setTextFont(ctx2d, { ...p, font: fam }, size);
+  try { ctx2d.letterSpacing = "0px"; } catch { }   // spacing is laid out by hand along the path
+  ctx2d.textBaseline = "alphabetic"; ctx2d.textAlign = "center";
+  const { A, closed } = Motion.outline(it), ls = +p.letterSpacing || 0;
+  const tracks = [];   // line i runs on a parallel curve i line-heights below the path
+  const track = (i) => tracks[i] || (tracks[i] = Motion.pathSampler(A, closed, i * lh));
+  const shadowBlur = (p.textShadow === 0 ? 0 : (+p.textShadow || 12)) * size / 100;
+  const fill = () => {
+    if (!p.color2) return p.color || "#fff";
+    const g = ctx2d.createLinearGradient(0, -size * 0.8, 0, size * 0.1);
+    g.addColorStop(0, p.color || "#fff"); g.addColorStop(1, p.color2);
+    return g;
+  };
+  // Lay out every line along the path (line i sits i line-heights below it), glyph by glyph,
+  // remembering the glyph's word and line so the animations can group them.
+  const lines = textSourceString(p).split("\n");
+  const glyphs = [];   // {g, w, d (centre along the path), line, word, ci (letter index), gi}
+  const lineRuns = [];   // {from, to} along the path, per line
+  let wi = 0, ci = 0, gi = 0;
+  lines.forEach((ln, line) => {
+    const gs = graphemeSegments(ln), ws = gs.map((g) => ctx2d.measureText(g).width);
+    const total = ws.reduce((a, b) => a + b, 0) + ls * Math.max(0, gs.length - 1);
+    const base = (+p.pathOffset || 0) / 100 * track(line).length;
+    let d = p.pathAlign === "center" ? base - total / 2 : p.pathAlign === "end" ? base - total : base;
+    lineRuns.push({ from: d, to: d + total });
+    let inWord = false;
+    gs.forEach((g, j) => {
+      const space = !g.trim();
+      if (!space && !inWord) { inWord = true; } else if (space && inWord) { inWord = false; wi++; }
+      glyphs.push({ g, w: ws[j], d: d + ws[j] / 2, line, word: wi, ci: space ? -1 : ci, gi, space });
+      if (!space) ci++;
+      gi++;
+      d += ws[j] + ls;
+    });
+    if (inWord) wi++;
+  });
+  // group centres (for word-pop / zoom-in, which scale a word or a line about its middle)
+  const centre = (key) => {
+    const out = new Map();
+    for (const q of glyphs) { if (q.space) continue; const k = q[key], o = out.get(k) || { a: Infinity, b: -Infinity }; o.a = Math.min(o.a, q.d - q.w / 2); o.b = Math.max(o.b, q.d + q.w / 2); out.set(k, o); }
+    return out;
+  };
+  const words = anim === "word-pop" ? centre("word") : null, lineBox = anim === "zoom-in" ? centre("line") : null;
+  const shown = anim === "typewriter" ? Math.floor(local / (rate / 4)) : Infinity;
+  const ease = EASE["ease-out"];
+  for (const q of glyphs) {
+    if (q.space || q.gi >= shown) continue;
+    let d = q.d, scale = 1, alpha = 1, dx = 0, dy = 0, clipL = null, clipR = null, rise = null;
+    const uw = clamp((local - q.word * rate) / 0.25, 0, 1);         // per word
+    const ul = (dur) => clamp((local - q.line * rate) / dur, 0, 1);  // per line
+    if (anim === "letter-pop") {
+      const u = clamp((local - q.ci * rate / 3) / 0.18, 0, 1);
+      if (u <= 0) continue;
+      scale = Math.max(0.001, backOut(u)); alpha = Math.min(1, u * 2.5);
+    } else if (anim === "wave") dy += Math.sin(local * 4 + q.ci * 0.55) * size * 0.12;
+    else if (anim === "word-pop") {
+      if (uw <= 0) continue;
+      scale = Math.max(0.001, backOut(uw)); alpha = Math.min(1, uw * 2.5);
+      const o = words.get(q.word), mid = (o.a + o.b) / 2;
+      d = mid + (d - mid) * scale;
+    } else if (anim === "word-slide") {
+      if (uw <= 0) continue;
+      dy += (1 - ease(uw)) * size * 0.7; alpha = uw;
+    } else if (anim === "bounce") dy -= Math.abs(Math.sin(local * 3.2 + q.word * 0.9)) * size * 0.18;
+    else if (anim === "shake") { dx += Math.sin(local * 31 + q.word * 7.3) * size * 0.035; dy += Math.cos(local * 27 + q.word * 3.1) * size * 0.035; }
+    else if (anim === "karaoke") alpha = uw >= 1 ? 1 : 0.3 + uw * 0.7;
+    else if (anim === "clip-reveal") {   // a wipe runs along each line in reading order
+      const u = ul(0.5);
+      if (u <= 0) continue;
+      const run = lineRuns[q.line], edge = run.from + (run.to - run.from) * ease(u);
+      if (edge <= d - q.w / 2) continue;
+      if (edge < d + q.w / 2) clipR = edge - d;
+    } else if (anim === "zoom-in") {
+      const u = ul(0.45);
+      if (u <= 0) continue;
+      scale = 1.35 - 0.35 * ease(u); alpha = Math.min(1, u * 1.6);
+      const o = lineBox.get(q.line), mid = (o.a + o.b) / 2;
+      d = mid + (d - mid) * scale;
+    } else if (anim === "rise-mask") {   // each line rises from behind its own baseline
+      const u = ul(0.5);
+      if (u <= 0) continue;
+      rise = (1 - ease(u)) * lh;
+    }
+    const at = track(q.line).at(d);
+    ctx2d.save();
+    ctx2d.translate(at.x, at.y);
+    ctx2d.rotate(at.angle * Math.PI / 180);
+    ctx2d.translate(dx, dy);
+    if (clipL != null || clipR != null || rise != null) {
+      ctx2d.beginPath();
+      const x0 = clipL ?? -q.w / 2 - size, x1 = clipR ?? q.w / 2 + size;
+      ctx2d.rect(x0, -size * 1.1, x1 - x0, size * 1.4);   // the glyph's line box: ascenders to descenders
+      ctx2d.clip();
+      if (rise != null) ctx2d.translate(0, rise);
+    }
+    if (scale !== 1) ctx2d.scale(scale, scale);
+    const keep = ctx2d.globalAlpha;
+    ctx2d.globalAlpha = keep * clamp(alpha, 0, 1);
+    if (p.strokeWidth > 0) {
+      ctx2d.lineJoin = "round"; ctx2d.miterLimit = 2; ctx2d.lineWidth = p.strokeWidth; ctx2d.strokeStyle = p.strokeColor || "#000";
+      ctx2d.strokeText(q.g, 0, 0);
+    }
+    if (p.glow > 0) { ctx2d.shadowColor = p.glowColor || p.color || "#fff"; ctx2d.shadowBlur = (+p.glow) * size / 40; }
+    else if (shadowBlur > 0) { ctx2d.shadowColor = "rgba(0,0,0,.7)"; ctx2d.shadowBlur = shadowBlur; ctx2d.shadowOffsetY = shadowBlur / 3; }
+    ctx2d.fillStyle = fill();
+    ctx2d.fillText(q.g, 0, 0);
+    if (p.glow > 0) ctx2d.fillText(q.g, 0, 0);
+    ctx2d.globalAlpha = keep;
+    ctx2d.restore();
+  }
+}
+function textPathSectionHtml(c, p, row) {
+  const has = !!clipTextPath(c), editing = has && shapeUi.clip === c.id && samePath(shapeUi.sel, [0]);
+  const btn = (attr, label, title, on, dis) => `<button type="button" class="btn tiny${on ? " toggle on" : ""}" ${attr} title="${title}" ${dis ? "disabled" : ""}>${label}</button>`;
+  return `<div class="insp-section" data-textpath-section><h3>Text path</h3>
+    <div class="cl-row">${Object.entries(TEXT_PATH_PRESETS).map(([k, pre]) => btn(`data-tpath="${k}"`, pre.label, `Set the title on a ${pre.label.toLowerCase()}`)).join("")}
+      ${btn('data-tpath="pen"', "Pen", "Draw the path on the monitor: click points (drag to curve), Enter to finish, click the first point to close it", shapeUi.clip === c.id && shapeUi.tool === "pen")}</div>
+    ${has ? `<div class="cl-row">${btn('data-tpath="edit"', "Edit path", "Show the path's points and handles on the monitor", editing)}${btn('data-tpath="off"', "Remove", "Back to a normal title")}</div>
+      ${row("Offset", `<input type="range" data-k="pathOffset" min="-100" max="200" step="0.5" value="${fmtInspNum(p.pathOffset, 0.5)}" title="Slide the text along the path, % of its length — key it to make the text travel">
+        <span class="val" data-val="pathOffset" data-unit="%">${fmtInspNum(p.pathOffset, 0.5)}%</span>`, "pathOffset")}
+      ${row("Align", `<select data-k="pathAlign">${["start", "center", "end"].map((v) => `<option value="${v}" ${(p.pathAlign || "start") === v ? "selected" : ""}>${v}</option>`).join("")}</select>`, "pathAlign")}
+      <p class="cl-note">Each line runs along the path, the next one a line below it. Every text animation plays along the path.</p>`
+    : `<p class="cl-note">Set the title along a line, an arc, a circle, a wave or a path you draw.</p>`}
+  </div>`;
+}
+function bindTextPathControls(c) {
+  for (const b of els.inspector.querySelectorAll("[data-tpath]")) b.addEventListener("click", () => {
+    if (isGroupLocked(c)) { toastLocked(); return; }
+    const k = b.dataset.tpath;
+    if (k === "edit") {
+      const on = shapeUi.clip === c.id && samePath(shapeUi.sel, [0]);
+      Object.assign(shapeUi, { clip: c.id, sel: on ? null : [0], pt: -1, tool: null, pen: null });
+      if (!on) { maskUi.sel = -1; maskUi.tool = null; }
+      state.dirtyTimeline = true; renderInspector();
+      return;
+    }
+    if (k === "pen") {
+      const on = shapeUi.clip === c.id && shapeUi.tool === "pen";
+      Object.assign(shapeUi, { clip: c.id, sel: null, pt: -1, tool: on ? null : "pen", pen: null });
+      if (!on && state.playing) pause();
+      if (!on && !activeAt(c, state.time)) toast("Move the playhead over the title, then draw on the monitor");
+      state.dirtyTimeline = true; renderInspector();
+      return;
+    }
+    pushUndo();
+    if (k === "off") { delete c.props.textPath; shapeUi.sel = null; }
+    else {
+      c.props.textPath = Motion.normalizeTextPath(TEXT_PATH_PRESETS[k].item);
+      Object.assign(shapeUi, { clip: c.id, sel: [0], pt: -1, tool: null, pen: null });
+    }
+    state.dirtyTimeline = true; inspPropGen++;
+    scheduleSave(); renderInspector();
+  });
+}
+/* ── Motion paths on the monitor ──
+   With two or more position keys (x and y keyed at the same time) the selected
+   clip's path shows over the picture: the curve, a dot per frame (their spacing
+   is the speed), a square per key and the keys' curve handles. Drag a key to move
+   it, its handles to bend the path (Alt breaks the pair), Alt-drag a key to pull
+   new handles, double-click a key to make it a corner again. */
+const pathUi = { clip: null, key: -1, drag: null };
+function motionPathActive(c) {
+  return !!c && isVisualClip(c) && !state.playing && !state.exporting && !runtime.anchorTool && !shapeUi.tool &&
+    Motion.posKeys(c).length >= 2 && activeAt(c, state.time);
+}
+/** Screen geometry of the path: the curve, frame dots and keys with their handles, in canvas px. */
+function motionPathGeom(c, W, H, t) {
+  const P = Motion.posKeys(c);
+  const M = parentScreenMatrix(c, W, H, t);
+  const scr = (x, y) => { const q = M.transformPoint(new DOMPoint(x, y)); return { x: q.x, y: q.y }; };
+  const t0 = P[0].t, t1 = P[P.length - 1].t, step = 1 / (projectFps() || 30);
+  const dots = [];
+  for (let u = t0; u <= t1 + 1e-9; u += step) { const q = Motion.positionAt(c, u); dots.push(scr(q.x, q.y)); }
+  const keys = P.map((k) => ({ k, a: scr(k.x, k.y), i: scr(k.x + k.ix, k.y + k.iy), o: scr(k.x + k.ox, k.y + k.oy), hasIn: !!(k.ix || k.iy), hasOut: !!(k.ox || k.oy) }));
+  return { P, M, dots, keys };
+}
+function drawMotionPathOverlay(c, W, H, t) {
+  if (!motionPathActive(c)) return;
+  if (pathUi.clip !== c.id) Object.assign(pathUi, { clip: c.id, key: -1, drag: null });
+  const g = motionPathGeom(c, W, H, t), lw = Math.max(1.5, W / 800), hs = Math.max(5, W / 170);
+  ctx2d.save();
+  ctx2d.setTransform(1, 0, 0, 1, 0, 0);
+  ctx2d.globalAlpha = 1; ctx2d.globalCompositeOperation = "source-over"; ctx2d.filter = "none";
+  ctx2d.lineJoin = "round";
+  const line = g.dots.map((q) => [q.x, q.y]);
+  ctx2d.lineWidth = lw * 2.4; ctx2d.strokeStyle = "rgba(0,0,0,0.5)"; strokeOutline(ctx2d, line, false);
+  ctx2d.lineWidth = lw; ctx2d.strokeStyle = "#c084fc"; strokeOutline(ctx2d, line, false);
+  ctx2d.fillStyle = "#e9d5ff";
+  for (const q of g.dots) { ctx2d.beginPath(); ctx2d.arc(q.x, q.y, lw * 1.1, 0, Math.PI * 2); ctx2d.fill(); }
+  const dot = (p, r, fill, square) => {
+    ctx2d.beginPath();
+    if (square) ctx2d.rect(p.x - r, p.y - r, r * 2, r * 2); else ctx2d.arc(p.x, p.y, r, 0, Math.PI * 2);
+    ctx2d.fillStyle = fill; ctx2d.fill(); ctx2d.lineWidth = lw; ctx2d.strokeStyle = "rgba(0,0,0,0.75)"; ctx2d.stroke();
+  };
+  g.keys.forEach((k, j) => {
+    const show = j === pathUi.key || k.hasIn || k.hasOut;
+    if (show) {
+      ctx2d.lineWidth = lw; ctx2d.strokeStyle = "#c084fc";
+      for (const [q, on] of [[k.i, j > 0], [k.o, j < g.keys.length - 1]]) {
+        if (!on || (!(j === pathUi.key) && !(q === k.i ? k.hasIn : k.hasOut))) continue;
+        ctx2d.beginPath(); ctx2d.moveTo(k.a.x, k.a.y); ctx2d.lineTo(q.x, q.y); ctx2d.stroke();
+        dot(q, hs * 0.55, "#c084fc");
+      }
+    }
+    dot(k.a, hs * 0.7, j === pathUi.key ? "#c084fc" : "#ffffff", true);
+  });
+  ctx2d.restore();
+}
+/** Write a position key's value / handles (pin / pout on the x and y keys). */
+function setPathKey(k, set) {
+  const put = (kf, prop, v) => { if (v == null || Math.abs(v) < 1e-3) delete kf[prop]; else kf[prop] = +v.toFixed(3); };
+  if ("x" in set) k.xk.v = +set.x.toFixed(3);
+  if ("y" in set) k.yk.v = +set.y.toFixed(3);
+  if ("ix" in set) { put(k.xk, "pin", set.ix); put(k.yk, "pin", set.iy); }
+  if ("ox" in set) { put(k.xk, "pout", set.ox); put(k.yk, "pout", set.oy); }
+  inspPropGen++; state.dirtyTimeline = true;
+}
+els.preview.addEventListener("pointerdown", (e) => {
+  if (e.button !== 0 || isSourceMode()) return;
+  const c = getClip(state.selId);
+  if (!motionPathActive(c) || maskEditActive(c) || shapeEditActive(c)) return;
+  const W = els.preview.width, H = els.preview.height, pt = canvasPt(e), grab = Math.max(8, W / 110);
+  const g = motionPathGeom(c, W, H, state.time);
+  const near = (q) => Math.hypot(q.x - pt.x, q.y - pt.y) <= grab;
+  let drag = null;
+  // handles first (the picked key's, then any shown), then the keys themselves
+  const last = g.keys.length - 1, order = [pathUi.key, ...g.keys.map((_, j) => j).filter((j) => j !== pathUi.key)].filter((j) => j >= 0);
+  for (const j of order) {
+    const k = g.keys[j], shown = (has) => j === pathUi.key || has;
+    if (j < last && shown(k.hasOut) && near(k.o)) { drag = { mode: "handle", side: "o", j }; break; }
+    if (j > 0 && shown(k.hasIn) && near(k.i)) { drag = { mode: "handle", side: "i", j }; break; }
+  }
+  if (!drag) {
+    const j = g.keys.findIndex((k) => near(k.a));
+    if (j >= 0) drag = { mode: e.altKey ? "pull" : "key", j };
+  }
+  if (!drag) return;   // not on the path: the monitor's usual clicks
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (isGroupLocked(c)) { toastLocked(); return; }
+  pushUndo();
+  pathUi.key = drag.j;
+  const k = g.P[drag.j];
+  pathUi.drag = { ...drag, inv: g.M.inverse(), k0: { x: k.x, y: k.y, ix: k.ix, iy: k.iy, ox: k.ox, oy: k.oy }, start: pt };
+  els.preview.setPointerCapture(e.pointerId);
+  state.dirtyTimeline = true;
+}, true);
+els.preview.addEventListener("pointermove", (e) => {
+  const d = pathUi.drag;
+  if (!d) return;
+  e.stopImmediatePropagation();
+  const c = getClip(state.selId), k = c && Motion.posKeys(c)[d.j];
+  if (!k) return;
+  const pt = canvasPt(e), q = d.inv.transformPoint(new DOMPoint(pt.x, pt.y)), k0 = d.k0;
+  if (d.mode === "key") {
+    const a = d.inv.transformPoint(new DOMPoint(d.start.x, d.start.y));
+    setPathKey(k, { x: k0.x + q.x - a.x, y: k0.y + q.y - a.y });
+  } else if (d.mode === "pull") {
+    const ox = q.x - k0.x, oy = q.y - k0.y;
+    if (Math.hypot(ox, oy) > 2) setPathKey(k, { ox, oy, ix: -ox, iy: -oy });
+  } else {
+    const hx = q.x - k0.x, hy = q.y - k0.y;
+    const mine = d.side === "o" ? { ox: hx, oy: hy } : { ix: hx, iy: hy };
+    if (!e.altKey) {   // keep the key smooth: the other handle mirrors the direction, keeps its length
+      const ol = d.side === "o" ? Math.hypot(k0.ix, k0.iy) : Math.hypot(k0.ox, k0.oy);
+      const len = ol || Math.hypot(hx, hy), m = Math.hypot(hx, hy) || 1;
+      if (d.side === "o") Object.assign(mine, { ix: -hx / m * len, iy: -hy / m * len });
+      else Object.assign(mine, { ox: -hx / m * len, oy: -hy / m * len });
+    } else if (d.side === "o") Object.assign(mine, { ix: k0.ix, iy: k0.iy });
+    else Object.assign(mine, { ox: k0.ox, oy: k0.oy });
+    const P = Motion.posKeys(c);
+    if (d.j === 0) { mine.ix = 0; mine.iy = 0; }
+    if (d.j === P.length - 1) { mine.ox = 0; mine.oy = 0; }
+    setPathKey(k, { ix: mine.ix ?? k0.ix, iy: mine.iy ?? k0.iy, ox: mine.ox ?? k0.ox, oy: mine.oy ?? k0.oy });
+  }
+  syncInspectorPlayhead();
+}, true);
+const endPathDrag = (e) => {
+  if (!pathUi.drag) return;
+  e.stopImmediatePropagation();
+  pathUi.drag = null;
+  scheduleSave(); renderInspector();
+};
+els.preview.addEventListener("pointerup", endPathDrag, true);
+els.preview.addEventListener("pointercancel", endPathDrag, true);
+els.preview.addEventListener("dblclick", (e) => {
+  const c = getClip(state.selId);
+  if (!motionPathActive(c) || maskEditActive(c) || shapeEditActive(c)) return;
+  const W = els.preview.width, H = els.preview.height, pt = canvasPt(e), grab = Math.max(8, W / 110);
+  const g = motionPathGeom(c, W, H, state.time), j = g.keys.findIndex((k) => Math.hypot(k.a.x - pt.x, k.a.y - pt.y) <= grab);
+  if (j < 0) return;
+  e.preventDefault(); e.stopImmediatePropagation();
+  if (isGroupLocked(c)) { toastLocked(); return; }
+  pushUndo();
+  setPathKey(g.P[j], { ix: 0, iy: 0, ox: 0, oy: 0 });
+  scheduleSave(); renderInspector();
+}, true);
+/** The Inspector's Motion section: motion path, auto-orient and motion blur. */
+function motionSectionHtml(c, p, row) {
+  const keys = Motion.posKeys(c).length, curved = Motion.hasPathHandles(c);
+  const btn = (attr, label, title, dis) => `<button type="button" class="btn tiny" ${attr} title="${title}" ${dis ? "disabled" : ""}>${label}</button>`;
+  return `<div class="insp-section" data-motion-section><h3>Motion</h3>
+    <div class="insp-row"><label title="Position keys (X and Y keyed at the same time) make a path you can bend on the monitor">Path</label><span class="insp-ctrls">
+      ${btn("data-path-act=\"smooth\"", "Smooth", "Curve the path smoothly through every position key", keys < 2)}
+      ${btn("data-path-act=\"straight\"", "Straight", "Straight lines between the position keys", !curved)}
+      <span class="cl-note">${keys >= 2 ? `${keys} position keys${curved ? ", curved" : ""}` : "key X and Y at two times"}</span></span></div>
+    ${row("Auto-orient", `<input type="checkbox" data-k="autoOrient" ${p.autoOrient ? "checked" : ""} title="Turn the clip with its direction of travel (its Rotation adds on top)">`, "autoOrient")}
+    ${c.kind !== "null" ? row("Motion blur", `<input type="range" data-k="motionBlur" min="0" max="720" step="15" value="${+p.motionBlur || 0}" title="Shutter angle — 180° is the film look, 0 is off">
+      <span class="val" data-val="motionBlur" data-unit="°">${+p.motionBlur || 0}°</span>`, "motionBlur")
+      + row("Blur samples", `<input type="range" data-k="motionBlurSamples" min="2" max="32" step="1" value="${+p.motionBlurSamples || 8}" title="Sub-frame samples per frame — more is smoother and slower (playback uses as many as fit in the frame time; a paused frame and export use them all)">
+      <span class="val" data-val="motionBlurSamples" data-unit="">${+p.motionBlurSamples || 8}</span>`, "motionBlurSamples") : ""}
+  </div>`;
+}
+function bindMotionControls(c) {
+  for (const b of els.inspector.querySelectorAll("[data-path-act]")) b.addEventListener("click", () => {
+    if (isGroupLocked(c)) { toastLocked(); return; }
+    pushUndo();
+    c.keyframes = b.dataset.pathAct === "smooth" ? Motion.smoothPath(c.keyframes) : Motion.straightPath(c.keyframes);
+    inspPropGen++; state.dirtyTimeline = true;
+    scheduleSave(); renderInspector();
+  });
+}
 
 /* ── Text direction (LTR / RTL) — per-line when direction is "auto".
    Auto-detect uses a DOM probe + getComputedStyle; cache by line text so
@@ -11315,6 +11793,7 @@ function beginTextBoxDrag(c, pt, W, H) {
   };
 }
 function drawText(c, p, local) {
+  if (p.textPath && clipTextPath(c)) { drawTextOnPath(c, p, local); return; }
   const useBox = hasTextBox(p);
   const boxW = +p.boxW, boxH = +p.boxH;
   const scaleToFit = useBox && !!p.boxFit;
@@ -12358,7 +12837,16 @@ function videoRangeBuffered(el, from, to) {
   return el.readyState >= 3;
 }
 function notePresented(el, mediaTime) {
-  if (Number.isFinite(mediaTime)) el._fcPresentedTime = mediaTime;
+  if (!Number.isFinite(mediaTime)) return;
+  // learn the source's frame duration from consecutive presented frames (the smallest
+  // step seen: playback can drop frames, never split one)
+  const prev = el._fcLastShown;
+  if (prev != null) {
+    const d = mediaTime - prev;
+    if (d > 1 / 240 && d < 0.1) { el._fcFrameDur = Math.min(el._fcFrameDur || Infinity, d); el._fcFrameSeen = (el._fcFrameSeen || 0) + 1; }
+  }
+  el._fcLastShown = mediaTime;
+  el._fcPresentedTime = mediaTime;
 }
 function presentedClose(el, mt, eps) {
   return el._fcPresentedTime != null && Math.abs(el._fcPresentedTime - mt) <= eps;
@@ -12395,15 +12883,32 @@ function assignVideoTime(el, mt, accurate) {
   }
   el.currentTime = mt;
 }
-function hardSeekVideo(el, mt, attempt = 0) {
+/** A finished seek to mt still shows the frame presented at `shown`: mt lies inside that one
+ *  source frame, by the frame duration learned from presented frames (unknown → no). */
+function sameSourceFrame(el, mt, shown) {
+  const dur = el._fcFrameDur;
+  if (shown == null || !(el._fcFrameSeen >= 3) || !(dur > 0)) return false;
+  return el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002 &&
+    mt >= shown - 1e-4 && mt < shown + dur - 1e-4;
+}
+function hardSeekVideo(el, mt, attempt = 0, shown = el._fcPresentedTime) {
   const hasRvfc = typeof el.requestVideoFrameCallback === "function";
   const maxAttempts = 3;
   return new Promise((res, rej) => {
-    const after = () => waitForPresentedFrame(el)
+    // a busy frame (grades, masks, blur) can present late: each retry waits longer
+    const after = () => waitForPresentedFrame(el, [80, 250, 600][attempt] || 600)
       .then(res)
       .catch((err) => {
-        if (attempt + 1 >= maxAttempts) rej(err);
-        else hardSeekVideo(el, mt, attempt + 1).then(res, rej);
+        // Slow motion lands several output frames on one source frame: seeking within the
+        // frame already on screen presents nothing new, so no frame callback ever comes.
+        // The seek finished on mt and the frame shown just before is within one source frame
+        // of it (≥ 20 fps footage): that frame is the right picture.
+        if (sameSourceFrame(el, mt, shown)) { notePresented(el, shown); res(); return; }
+        if (attempt + 1 < maxAttempts) { hardSeekVideo(el, mt, attempt + 1, shown).then(res, rej); return; }
+        // Last try: the seek finished on mt with the frame's data loaded, so the element holds
+        // that frame even though no callback reported it. Better than failing the whole export.
+        if (el.readyState >= 2 && !el.seeking && Math.abs(el.currentTime - mt) < 0.002) { notePresented(el, mt); res(); return; }
+        rej(err);
       });
     if (presentedClose(el, mt, 0.002) && el.readyState >= 2) {
       res();
