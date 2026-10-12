@@ -7,7 +7,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.14.0] - 2026-10-12
+
 ### Added
+- **Compositions (nested sequences).** `project.comps` holds timelines of their
+  own (size, length, tracks, clips); a `comp` clip places one, drawn like a
+  picture of the comp's size so transform, masks, mattes, blend and grade apply
+  to it as a whole, while the video and audio inside play and export as if on
+  the timeline. Comps nest 4 deep. In the editor: comps in the bin's Project
+  tab (drag to place, double-click to open), an open comp takes over the
+  timeline with a breadcrumb and Esc to go back, **Precompose** in the clip
+  menu, **New composition** in the Project tab menu, and a Composition section
+  in the Inspector.
+- Agents: `addComp`, `updateComp`, `removeComp`, `precompose` and `inComp`
+  patch ops; comps are validated and listed in the compact view.
+- **Animation presets.** 33 named animations (In, Out, At playhead, Loop) that
+  key a clip relative to where it sits and how big it is: scale and opacity
+  multiply, the rest add. Apply them from the Inspector's Motion section, and
+  save a clip's own keyframes as a preset in `library/presets/`.
+- **Templates.** Lower thirds (Bar, Underline, Boxes), logo animations (Ring
+  reveal, Slam, Lines) and social layouts (9:16 story, 1:1 quote, 16:9 end
+  card) in the bin's new Templates tab. Each placement is its own comp whose
+  text, colour and logo fields are edited in the Inspector; changing its length
+  keeps the exit at the end. Right-click a comp → Save as template keeps your
+  own in `library/templates/`. A placeholder logo ships in
+  `library/elements/`.
+- Agents: `applyPreset`, `addTemplate`, `setTemplate`, `savePreset` and
+  `saveTemplate` patch ops; `GET`/`POST /api/presets` and `/api/templates`;
+  the compact view shows a placed template's fields.
+- Hovering a comp clip on the timeline shows "Double-click to open" (and a
+  tooltip naming the comp or template).
 - **Motion paths.** Position keys (x and y keyed together) take bezier
   handles (`pin` / `pout` on the keys), so a clip travels along a curve, paced
   along the curve by its eases. The path shows on the monitor with a dot per
@@ -59,6 +88,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     source modes.
   - The MCP layer now answers with content blocks rather than a bare string,
     which is what lets a tool return an image at all.
+
+### Changed
+- The Keyboard shortcuts dialog is grouped into sections (Playback, Editing,
+  IN / OUT and markers, Bin and compositions, Masks, …) and has a filter box.
 
 ### Fixed
 - Exports of clips with slow-motion speed ramps (or very busy frames: grades,
@@ -742,7 +775,8 @@ the report in [#1](https://github.com/ronak-create/FableCut/issues/1) — thanks
 - Three control surfaces for AI agents: **MCP server**, direct `project.json`
   editing, and a **REST API** with live-reload over server-sent events.
 
-[Unreleased]: https://github.com/ronak-create/FableCut/compare/v1.13.0...HEAD
+[Unreleased]: https://github.com/ronak-create/FableCut/compare/v1.14.0...HEAD
+[1.14.0]: https://github.com/ronak-create/FableCut/compare/v1.13.0...v1.14.0
 [1.13.0]: https://github.com/ronak-create/FableCut/compare/v1.12.1...v1.13.0
 [1.12.1]: https://github.com/ronak-create/FableCut/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/ronak-create/FableCut/compare/v1.11.0...v1.12.0
