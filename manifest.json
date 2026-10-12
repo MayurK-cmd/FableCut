@@ -2,7 +2,7 @@
   "manifest_version": "0.2",
   "name": "fablecut",
   "display_name": "FableCut",
-  "version": "1.12.1",
+  "version": "1.13.0",
   "description": "Zero-dependency browser video editor that AI agents can drive — JSON timeline, MCP tools, live-reloading UI.",
   "long_description": "FableCut is a Premiere-style non-linear video editor that runs in the browser with zero npm dependencies. An AI agent edits video by patching a single project.json timeline (clips, keyframes, transitions, text animations, filters, speed ramps, adjustment layers) through MCP tools; the open editor UI live-reloads within ~150 ms and exports MP4 via ffmpeg. Includes reference-video analysis (shot cuts, beats, BPM, energy, drop) so agents can remake an edit with new footage.",
   "author": {
@@ -13,7 +13,7 @@
     "type": "git",
     "url": "https://github.com/ronak-create/FableCut"
   },
-  "homepage": "https://ronak-create.github.io/FableCut/",
+  "homepage": "https://fablecut.space/",
   "documentation": "https://github.com/ronak-create/FableCut/blob/main/CLAUDE.md",
   "license": "MIT",
   "keywords": ["video-editor", "nle", "timeline", "canvas", "mcp", "ai-agent", "ffmpeg"],
@@ -30,7 +30,7 @@
     { "name": "fablecut_docs", "description": "Return the full editor manual (project.json schema, props, recipes), optionally a single section" },
     { "name": "fablecut_get_project", "description": "Read the timeline JSON (compact mode available for token-efficient planning)" },
     { "name": "fablecut_set_project", "description": "Replace the timeline JSON with optimistic-concurrency conflict detection" },
-    { "name": "fablecut_patch_project", "description": "Apply targeted, merge-safe ops (add/update/remove clip or media, set project fields, track levels, submix buses, audio effects and their automation, color grades and secondaries) and timeline edits (split, ripple delete, lift/extract, insert/overwrite, ripple/roll/slip/slide, crossfade)" },
+    { "name": "fablecut_patch_project", "description": "Apply targeted, merge-safe ops (add/update/remove clip or media, set project fields, track levels, submix buses, audio effects and their automation, color grades and secondaries, clip masks, track mattes) and timeline edits (split, ripple delete, lift/extract, insert/overwrite, ripple/roll/slip/slide, crossfade)" },
     { "name": "fablecut_import_media", "description": "Copy a local file into the project's media folder and register it" },
     { "name": "fablecut_analyze_reference", "description": "Analyze a reference video into an edit blueprint: shot cuts, beats, BPM, energy curve, drop; extracts its music" },
     { "name": "fablecut_frame", "description": "Look at the footage: one JPEG frame of a source clip at a timestamp, an N-up contact sheet across a clip, or the composed timeline rendered and graded at a moment - returned inline as an image the agent can see" },
@@ -39,7 +39,8 @@
     { "name": "fablecut_auto_duck", "description": "Duck music under dialogue: write duck keyframes wherever the voice tracks speak" },
     { "name": "fablecut_denoise", "description": "Reduce background noise on audio clips: render a cleaned copy of the file and switch the clips to it" },
     { "name": "fablecut_export", "description": "Render the timeline to a video file with the editor's Fast export, in an open editor tab or a headless browser" },
-    { "name": "fablecut_scopes", "description": "Measure the graded picture at a moment: luma levels, clipping, mean RGB, saturation and colour cast — and what a grade layer's matte selects" }
+    { "name": "fablecut_scopes", "description": "Measure the graded picture at a moment: luma levels, clipping, mean RGB, saturation and colour cast — and what a grade layer's matte or a clip's masks select" },
+    { "name": "fablecut_track", "description": "Motion tracking: follow a region of a video clip frame by frame, store it as a track, and make a mask follow it or pin another clip to it" }
   ],
   "compatibility": {
     "runtimes": { "node": ">=18" }

@@ -178,15 +178,39 @@ same time.
   pivot, soft rolloff and saturation, plus **curves** — luma and R / G / B,
   hue vs hue, hue vs saturation, hue vs luma and saturation vs luma, with a
   picker that marks a colour from the monitor, and **layers** (secondaries):
-  a correction limited by an HSL **qualifier** and / or an ellipse, rect or
-  polygon **mask** (feathered, invertible, keyframable, dragged on the
-  monitor), with a matte view. Copy / paste a grade across shots.
+  a correction limited by an HSL **qualifier** and / or an ellipse, rect,
+  polygon, bezier or free-hand **mask** (feathered, invertible, keyframable,
+  dragged on the monitor), with a matte view. Copy / paste a grade across shots.
   Agents grade with the `setGrade` patch op and read the result as numbers
   with `fablecut_scopes` (levels, clipping, colour cast)
 - Quick filter sliders: brightness/contrast/saturation/hue, **temperature & tint**,
   blur, grayscale/sepia/invert, **vignette**, animated **film grain**
-- Blend modes (screen, multiply, overlay…), fit modes (contain/cover/stretch),
+- 17 blend modes (screen, multiply, overlay, color-burn, exclusion, hue,
+  luminosity…), fit modes (contain/cover/stretch),
   per-edge cropping, corner radius, flip H/V
+- **Masks** — isolate any part of a clip (video, image, SVG, text or an
+  adjustment layer): rectangle, ellipse, **bezier pen** and **free-hand**
+  shapes, several per clip, combined with add / subtract / intersect /
+  difference, each with feather, expansion, invert and opacity, all
+  keyframable (outlines morph). Draw and edit them on the monitor, with a
+  matte view. Agents use the `setMask` patch op and measure with `fablecut_scopes`
+- **Shapes and motion graphics** — shape layers of rectangles, ellipses,
+  polygons, stars, lines and pen-drawn bezier paths in groups, with fill,
+  stroke, dashes and trim paths for draw-ons; null objects, parenting and an
+  anchor point on every clip; every value keyframes, edited right on the
+  monitor. Agents use the `setShape` and `setParent` patch ops
+- **Motion paths, motion blur and text on a path** — bend a clip's travel into
+  a curve with handles on the monitor, turn it along the way, blur fast moves
+  with a shutter angle (preview and export), and set titles along lines, arcs,
+  circles or drawn paths. Agents use the `setMotionPath` and `setTextPath`
+  patch ops
+- **Motion tracking** — follow a point or a region (with its scale and
+  rotation) through a video clip, then make a mask follow it or pin a title,
+  sticker or any clip to it; the result is ordinary editable keys. Agents use
+  `fablecut_track`
+- **Track mattes** — cut a clip with the picture on the track above by its
+  alpha or its luma (inverted or not): text filled with video, shape reveals,
+  texture cut-outs. The matte track hides itself. Agents use `setMatte`
 - **Chroma key** (green screen) with tolerance/softness + spill suppression
 - **AI background removal** (person cut-out, in-browser via MediaPipe)
 
@@ -323,8 +347,8 @@ you choose. Leave it unset and everything stays in the repo, exactly as before.
 /plugin install fablecut@fablecut
 ```
 
-That registers the MCP server for you and adds two skills — `edit-video` and
-`remake-reel`. Your timeline and footage live in the plugin's own data
+That registers the MCP server for you and adds three skills — `edit-video`,
+`remake-reel` and `motion-graphics`. Your timeline and footage live in the plugin's own data
 directory, so an update never touches them. Node 18+ and (optionally) ffmpeg
 still need to be on your machine.
 
@@ -393,7 +417,7 @@ Three equivalent control surfaces:
    `fablecut_get_project`, `fablecut_set_project`, `fablecut_patch_project`,
    `fablecut_import_media`, `fablecut_analyze_reference`, `fablecut_frame`,
    `fablecut_encode_profiles`, `fablecut_normalize_audio`, `fablecut_auto_duck`,
-   `fablecut_denoise`, `fablecut_export`, `fablecut_scopes`.
+   `fablecut_denoise`, `fablecut_export`, `fablecut_scopes`, `fablecut_track`.
 
    FableCut is also published on the **official MCP registry** as
    [`io.github.ronak-create/fablecut`](https://registry.modelcontextprotocol.io/v0/servers?search=fablecut)
@@ -578,11 +602,11 @@ examples in [`library/svg/`](library/svg/).
 
 ## Sponsors
 
-<a href="https://fluxionai.world/register?source=github&amp;campaign=github-fablecut&amp;promo=FABLECUT" target="_blank" rel="noopener noreferrer sponsored">
-  <img src="docs/sponsors/fluxion-ai-banner.png" alt="Fluxion AI — unified access to GPT, Claude and other leading AI models" width="640">
+<a href="https://fluxionai.space/register?source=github&amp;campaign=github-sidrune-fablecut&amp;promo=SDRFABLECUT" target="_blank" rel="noopener noreferrer sponsored">
+  <img src="docs/sponsors/sidrune-ai-banner.png" alt="Sidrune AI — one API for GPT, Claude and other leading AI models" width="640">
 </a>
 
-**[Fluxion AI](https://fluxionai.world/register?source=github&campaign=github-fablecut&promo=FABLECUT)** provides reliable, cost-efficient access to GPT, Claude, and other leading AI models through one unified API. Save up to 70% compared with official API pricing — and get $3 in API credits when you sign up through this link.
+**[Sidrune AI](https://fluxionai.space/register?source=github&campaign=github-sidrune-fablecut&promo=SDRFABLECUT)** — One API for GPT, Claude, and other leading AI models. Sign up and get $3 in API credit.
 
 ## Community
 

@@ -8,6 +8,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
+- **Motion paths.** Position keys (x and y keyed together) take bezier
+  handles (`pin` / `pout` on the keys), so a clip travels along a curve, paced
+  along the curve by its eases. The path shows on the monitor with a dot per
+  frame; drag keys and handles to shape it. **Smooth** / **Straight** in the
+  Inspector's Motion section, and **Auto-orient** turns the clip along the path.
+- **Motion blur.** `motionBlur` (shutter angle) and `motionBlurSamples` average
+  sub-frame samples of a moving clip, in preview and export alike; playback
+  uses as many samples as the frame time allows.
+- **Text on a path.** A title's `textPath` (a line, arc, circle, wave, any
+  shape outline or a pen path) carries the text, each letter turned with it;
+  further lines run on parallel curves below. `pathOffset` (keyframable)
+  slides it along, and every text animation plays along the path.
+- Agents: `setMotionPath` and `setTextPath` patch ops; the new props are
+  validated and shown in the compact view.
+- **Shape layers.** A new clip kind, `shape`, draws vector items in
+  `props.shapes`: rectangles (with rounded corners), ellipses, polygons, stars,
+  lines and bezier paths (open or closed), nested in groups. Each has a fill and
+  a stroke (width, caps, joins, dashes) and trim paths (`trimStart`, `trimEnd`,
+  `trimOffset`) for draw-ons; the layer's own trim props trim every path at once.
+  Every item value keys on its own, colours and path outlines included. In the
+  editor: a **Shapes** tab in the bin (or the Pen) and a Shape layer section, with items moved,
+  turned, resized and point-edited on the monitor.
+- **Null objects and parenting.** `kind: "null"` is an invisible clip that
+  carries a transform. Any visual clip can take a `parent` and then moves,
+  turns and scales with it, through chains of parents. Choosing a parent keeps
+  the clip where it is; right-click → **Parent to a new null** groups clips.
+- **Anchor point.** `anchorX` / `anchorY` on every visual clip set the point
+  position places and rotation and scale turn around. **✥ Move** drags it on
+  the monitor while the picture stays put.
+- Agents: `setShape`, `removeShape` and `setParent` patch ops; `props.shapes`
+  and `parent` are validated on `addClip` / `updateClip`; the compact view
+  lists shapes and parents. A `motion-graphics` skill covers the recipes.
 - **Agents can see, not just measure.** `fablecut_analyze_reference` gave
   agents the *ears* of a reference edit (cuts, beats, BPM, energy, drop).
   `fablecut_frame` gives them the *eyes* — it answers with a real image the
@@ -27,6 +59,48 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     source modes.
   - The MCP layer now answers with content blocks rather than a bare string,
     which is what lets a tool return an image at all.
+
+### Fixed
+- Exports of clips with slow-motion speed ramps (or very busy frames: grades,
+  masks, blur) no longer fail with "presented frame timeout". A seek that lands
+  inside the source frame already on screen is accepted, and later tries wait
+  longer before giving up.
+
+## [1.13.0] - 2026-10-10
+
+### Added
+- **Masks.** Any video, image, SVG, text or adjustment clip can carry a stack of
+  masks (`props.masks`, up to 8): rectangle, ellipse, bezier (pen tool with
+  curve handles) and free-hand (a drawn outline fitted into an editable
+  bezier). Each has a mode (add, subtract, intersect, difference), invert,
+  opacity, feather and expansion, and every shape parameter can be keyframed,
+  bezier outlines included. Masks follow the clip's transform and render the
+  same in preview and export. The Inspector's **Masks** section draws and edits
+  them on the monitor and has a matte view.
+- Agents: patch ops `setMask`, `removeMask` and `setMaskKeys`; `props.masks`
+  is validated on `addClip` / `updateClip`; `fablecut_scopes {mask:{clip}}`
+  reports how much of the clip its masks keep; the compact project view lists
+  each clip's masks.
+- Color layers' masks can be bezier or free-hand too (**Draw** in the Color
+  tab, or `shape:"bezier"` / `"freehand"` in `setGradeLayer`).
+- **Track mattes.** A clip can be cut by the picture on another track (the
+  video track above by default): `props.matte` = `alpha`, `alpha-inverted`,
+  `luma` or `luma-inverted`, `props.matteTrack` to pick the track. The matte
+  track stops drawing while it is in use; the timeline marks both sides. In the
+  Inspector under **Blend**; agents use the `setMatte` patch op, and
+  `fablecut_scopes` lists each clip's matte and blend.
+- **Motion tracking.** Follow a point or a region of a video clip frame by
+  frame (template matching, sub-pixel, optionally with scale and rotation);
+  the track is stored on the clip (`props.tracks`). A mask's **◀ Back / On ▶**
+  buttons track what it covers and key its position (and scale / rotation);
+  the Inspector's **Tracking** section tracks points and **attaches** any
+  visual clip to a track as editable keyframes. Esc stops a running track.
+- Agents: the `fablecut_track` tool (track a point, a region or a mask, then
+  `apply` it to a mask or a clip) and the `removeTrack` patch op; tracks are
+  validated on `addClip` / `updateClip` and summarized in the compact view.
+- Blend modes: `color-burn`, `exclusion`, `hue`, `saturation`, `color` and
+  `luminosity` join the list (17 in all). `blend`, `matte` and `matteTrack` are
+  validated on `addClip` / `updateClip`.
 
 ## [1.12.1] - 2026-10-08
 
@@ -668,7 +742,8 @@ the report in [#1](https://github.com/ronak-create/FableCut/issues/1) — thanks
 - Three control surfaces for AI agents: **MCP server**, direct `project.json`
   editing, and a **REST API** with live-reload over server-sent events.
 
-[Unreleased]: https://github.com/ronak-create/FableCut/compare/v1.12.1...HEAD
+[Unreleased]: https://github.com/ronak-create/FableCut/compare/v1.13.0...HEAD
+[1.13.0]: https://github.com/ronak-create/FableCut/compare/v1.12.1...v1.13.0
 [1.12.1]: https://github.com/ronak-create/FableCut/compare/v1.12.0...v1.12.1
 [1.12.0]: https://github.com/ronak-create/FableCut/compare/v1.11.0...v1.12.0
 [1.11.0]: https://github.com/ronak-create/FableCut/compare/v1.10.0...v1.11.0

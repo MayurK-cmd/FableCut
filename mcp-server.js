@@ -29,6 +29,9 @@ const EditOps = require("./edit-ops");
 const Denoise = require("./denoise");
 const Color = require("./color");
 const FrameStats = require("./frame-stats");
+const Mask = require("./mask");
+const Tracker = require("./tracker");
+const Motion = require("./motion");
 
 /* ROOT is where the code lives (server.js, CLAUDE.md); the user's timeline and
    media live under DATA_DIR. Identical unless FABLECUT_DATA_DIR is set. */
@@ -145,7 +148,7 @@ const TOOLS = [
   },
   {
     name: "fablecut_patch_project",
-    description: "Apply targeted edits to the FableCut project WITHOUT round-tripping the whole document — PREFER THIS over get+set for every edit (it is ~10-100x cheaper in tokens and merge-safe by design: it re-reads the latest document from disk, applies your ops in order, bumps revision once, saves atomically). Ops: {op:'addClip', clip:{…}} (id auto-generated if omitted) · {op:'updateClip', id, set:{…}} · {op:'removeClip', id} · {op:'addMedia', media:{…}} · {op:'removeMedia', id} · {op:'setProject', set:{name|width|height|fps|background|markers|disabledTracks|lockedTracks|untargetedTracks|encodeProfile|master}} (markers = the full list [{t, label?, color?}], color: gold|red|orange|green|cyan|blue|purple|pink; master = {gain}, the master fader in dB) · {op:'setTrack', id:'A1', set:{gain?, pan?, out?}} (audio-track fader in dB −60…+12, pan −1…1, out = a submix bus id or 'master'; null or 0 resets) · {op:'setBus', id:'B1', set:{name?, gain?, pan?, mute?}} (submix bus, created if missing; route tracks into it with setTrack out) · {op:'removeBus', id} · {op:'setFx', target:'clip'|'track'|'bus'|'master', id?, preset?:'podcast'|… OR fx:[{type,…params}], append?:true} (audio effects — validated; presets: clean-voice, podcast, radio, deep-voice, telephone, cinematic, wide, muffled; fx:null clears; on a clip it applies to its linked stems too) · {op:'setFxKeys', target, id?, index?|type?, param, keys:[{t, v, ease?}]|null} (automate one effect parameter: t is clip-local for a clip's effects, timeline seconds otherwise; see the 'Audio mix' docs section) · {op:'setGrade', id | ids:[…], grade:{exposure?, temp?, tint?, lift?, gamma?, gain?, offset?, contrast?, pivot?, blacks?, shadows?, midtones?, highlights?, whites?, lowSoft?, highSoft?, saturation?, curves?:{y?, r?, g?, b?}, hueHue?, hueSat?, hueLuma?, satLuma?, layers?:[…], on?}, replace?:true} (color grade on video / image / svg / adjust clips — wheels are [r, g, b, master]; curves are [[x, y], …] point lists on 0…1 and merge per channel; hue curves are [[hue°, value], …] — one point = a ±40° band; layers replaces the whole layer list; merges key by key, null resets a key, replace:true starts from neutral, grade:null clears; see the 'Color' docs section; measure the result with fablecut_scopes) · {op:'setGradeLayer', id | ids, layer: index | 'name', set:{name?, on?, qualifier?:{hue?:[centre°, width°, soft°], sat?:[lo, hi, soft], luma?:[lo, hi, soft], invert?}, mask?:{shape:'ellipse'|'rect'|'poly', x, y, w, h, rotation?, feather?, invert?, points?, keys?:[{t, x?, y?, …}]}, …any grade key}, replace?:true, remove?:true} (a secondary: a grade applied only where the qualifier × mask select; a new name or index = length adds a layer; qualifier and mask merge key by key; check what it selects with fablecut_scopes matte:{clip, layer}). TIMELINE EDITS — the editor's own split / ripple / trim code, so linked stems, track targeting (untargetedTracks) and locks behave exactly as in the UI; times in seconds: {op:'split', at, ids?} (no ids: every targeted track) · {op:'rippleDelete', ids} (later clips close the hole) · {op:'closeGap', at} · {op:'lift'|'extract', from?, to?} (remove a range; extract closes it; default = project inPoint/outPoint, which then clear) · {op:'insert'|'overwrite', mediaId, at, in?, duration?} (three-point edit: insert pushes later clips right, overwrite replaces what is there; a video brings one audio stem per channel) · {op:'rippleTrim'|'roll', id, side:'in'|'out', delta} · {op:'slip'|'slide', id, delta} (clamped to the media; the note says what was applied) · {op:'crossfade', ids? | at, duration?} (constant-power audio crossfade, borrowing handles from both sides). Any of these takes tracks:[…] to target lanes for that op only. setProject also takes inPoint / outPoint. updateClip merge rules: top-level keys are replaced (keyframes/transitionIn/transitionOut wholesale), `props` merges key-by-key, and setting any key to null deletes it. LOCKS: the user can lock clips (`locked:true`) and tracks (`lockedTracks`); updateClip / removeClip on a locked clip — or on a clip linked to one — and addClip onto a locked track are refused. Leave locked material alone; only if the user asked you to change it, pass force:true on that op (or unlock first: updateClip set:{locked:null}, which is always allowed). All-or-nothing: an invalid op aborts the whole patch unsaved. Optional baseRevision: the revision your ops were planned against (from fablecut_get_project, fablecut_status or the previous patch result) — if the project has moved past it (e.g. the user edited in the UI meanwhile), the patch is refused with CONFLICT and the current revision, nothing saved; re-check the clips you touch, then retry with the new revision. Omit it to apply on top of whatever is latest.",
+    description: "Apply targeted edits to the FableCut project WITHOUT round-tripping the whole document — PREFER THIS over get+set for every edit (it is ~10-100x cheaper in tokens and merge-safe by design: it re-reads the latest document from disk, applies your ops in order, bumps revision once, saves atomically). Ops: {op:'addClip', clip:{…}} (id auto-generated if omitted) · {op:'updateClip', id, set:{…}} · {op:'removeClip', id} · {op:'addMedia', media:{…}} · {op:'removeMedia', id} · {op:'setProject', set:{name|width|height|fps|background|markers|disabledTracks|lockedTracks|untargetedTracks|encodeProfile|master}} (markers = the full list [{t, label?, color?}], color: gold|red|orange|green|cyan|blue|purple|pink; master = {gain}, the master fader in dB) · {op:'setTrack', id:'A1', set:{gain?, pan?, out?}} (audio-track fader in dB −60…+12, pan −1…1, out = a submix bus id or 'master'; null or 0 resets) · {op:'setBus', id:'B1', set:{name?, gain?, pan?, mute?}} (submix bus, created if missing; route tracks into it with setTrack out) · {op:'removeBus', id} · {op:'setFx', target:'clip'|'track'|'bus'|'master', id?, preset?:'podcast'|… OR fx:[{type,…params}], append?:true} (audio effects — validated; presets: clean-voice, podcast, radio, deep-voice, telephone, cinematic, wide, muffled; fx:null clears; on a clip it applies to its linked stems too) · {op:'setFxKeys', target, id?, index?|type?, param, keys:[{t, v, ease?}]|null} (automate one effect parameter: t is clip-local for a clip's effects, timeline seconds otherwise; see the 'Audio mix' docs section) · {op:'setGrade', id | ids:[…], grade:{exposure?, temp?, tint?, lift?, gamma?, gain?, offset?, contrast?, pivot?, blacks?, shadows?, midtones?, highlights?, whites?, lowSoft?, highSoft?, saturation?, curves?:{y?, r?, g?, b?}, hueHue?, hueSat?, hueLuma?, satLuma?, layers?:[…], on?}, replace?:true} (color grade on video / image / svg / adjust clips — wheels are [r, g, b, master]; curves are [[x, y], …] point lists on 0…1 and merge per channel; hue curves are [[hue°, value], …] — one point = a ±40° band; layers replaces the whole layer list; merges key by key, null resets a key, replace:true starts from neutral, grade:null clears; see the 'Color' docs section; measure the result with fablecut_scopes) · {op:'setGradeLayer', id | ids, layer: index | 'name', set:{name?, on?, qualifier?:{hue?:[centre°, width°, soft°], sat?:[lo, hi, soft], luma?:[lo, hi, soft], invert?}, mask?:{shape:'ellipse'|'rect'|'poly', x, y, w, h, rotation?, feather?, invert?, points?, keys?:[{t, x?, y?, …}]}, …any grade key}, replace?:true, remove?:true} (a secondary: a grade applied only where the qualifier × mask select; a new name or index = length adds a layer; qualifier and mask merge key by key; check what it selects with fablecut_scopes matte:{clip, layer}) · {op:'setMask', id | ids, mask?: index | 'name', set:{shape?:'rect'|'ellipse'|'bezier'|'freehand', mode?:'add'|'subtract'|'intersect'|'difference', invert?, opacity?, feather? (px), expand? (px, − shrinks), x?, y? (centre, 0…1 of the clip's picture), w?, h?, scale?, rotation?, points?:[[dx, dy, inX?, inY?, outX?, outY?], …] (bezier, around x, y), stroke?:[[u, v], …] (freehand: fitted into a bezier), keys?:[{t, ease?, x?, y?, w?, h?, scale?, rotation?, feather?, expand?, opacity?, points?}], name?, on?}, replace?:true, remove?:true} (clip masks on video / image / svg / text / adjust clips: the clip shows only where its masks combine to, bottom-up; mask left out, an unknown name or index = length adds one — a new mask needs shape; set merges key by key; masks follow the clip's transform; check with fablecut_scopes mask:{clip}) · {op:'removeMask', id, mask} · {op:'setMaskKeys', id, mask, keys:[…]|null} (animate a mask; t = seconds from the clip's start) · {op:'setMatte', id | ids, matte:'alpha'|'alpha-inverted'|'luma'|'luma-inverted'|null, track?:'V3'|null} (track matte: the picture on the video track directly above — or track — cuts the clip by its alpha or its brightness, inverted or not; that track stops drawing while it is a matte; null clears). · {op:'removeTrack', id, track: name | index} (delete a motion track stored by fablecut_track; what follows it keeps its keys). MOTION GRAPHICS: a shape layer is addClip {kind:'shape', track, start, duration, props:{shapes:[…]}} (no mediaId); a null is addClip {kind:'null', …} — invisible, a parent for other clips. {op:'setShape', id | ids, shape?: index | 'name' | '2.0' (path into a group), set:{type?:'rect'|'ellipse'|'polygon'|'star'|'line'|'path'|'group', name?, on?, x?, y? (px from the layer's origin), rotation?, scale?, opacity?, w?, h?, radius? (rect corners), sides?, inner? (star 0.05…1), points?:[[x, y, inX?, inY?, outX?, outY?], …] (line: 2, path: 2…128, px around x, y), closed? (path), fill?, stroke? ('#rrggbb' | '#rrggbbaa' | 'none'), strokeWidth?, lineCap?, lineJoin?, dash?:[on, off…], trimStart?, trimEnd? (0…100 — a draw-on), trimOffset?, items?:[…] (group), keys?:[{t, ease?, …any of x y rotation scale opacity w h radius inner strokeWidth trimStart trimEnd trimOffset fill stroke points}]}, replace?:true, remove?:true} (shape left out, an unknown name or index = length adds one — a new shape needs type; set merges key by key) · {op:'removeShape', id, shape} · {op:'setParent', id | ids, parent: clip id | null, keep?: true, at?} (the clip moves, turns and scales with its parent; keep:true — the default — keeps it where it is at time at, default its start; opacity and effects are not inherited). MOTION PATHS: x and y keyed at the same time are a position key; curve handles pin / pout (px) on those x and y keys bend the path between keys ({op:'setMotionPath', id | ids, path:'smooth'|'straight', autoOrient?:bool} sets them for you; props.autoOrient turns the clip along its path). props.motionBlur = shutter angle 0…720 (180 = film look), props.motionBlurSamples 2…32. TEXT ON A PATH: {op:'setTextPath', id | ids, path:'line'|'arc'|'circle'|'wave'|{type:'path'|'line'|'ellipse'|'rect'|'polygon'|'star', …shape item geometry, keys?}|null, offset? (% along, keyable as pathOffset), align?:'start'|'center'|'end'} — the title runs along the path (more lines on parallel curves below it), every textAnim plays along it. Every visual clip also has props.anchorX / anchorY (px from its picture's centre: the point x / y place and rotation / scale turn around) and shape clips props.trimStart / trimEnd / trimOffset (trim every path in the layer) — all keyframable. props.blend: normal · multiply · screen · overlay · darken · lighten · color-dodge · color-burn · hard-light · soft-light · difference · exclusion · hue · saturation · color · luminosity · lighter. TIMELINE EDITS — the editor's own split / ripple / trim code, so linked stems, track targeting (untargetedTracks) and locks behave exactly as in the UI; times in seconds: {op:'split', at, ids?} (no ids: every targeted track) · {op:'rippleDelete', ids} (later clips close the hole) · {op:'closeGap', at} · {op:'lift'|'extract', from?, to?} (remove a range; extract closes it; default = project inPoint/outPoint, which then clear) · {op:'insert'|'overwrite', mediaId, at, in?, duration?} (three-point edit: insert pushes later clips right, overwrite replaces what is there; a video brings one audio stem per channel) · {op:'rippleTrim'|'roll', id, side:'in'|'out', delta} · {op:'slip'|'slide', id, delta} (clamped to the media; the note says what was applied) · {op:'crossfade', ids? | at, duration?} (constant-power audio crossfade, borrowing handles from both sides). Any of these takes tracks:[…] to target lanes for that op only. setProject also takes inPoint / outPoint. updateClip merge rules: top-level keys are replaced (keyframes/transitionIn/transitionOut wholesale), `props` merges key-by-key, and setting any key to null deletes it. LOCKS: the user can lock clips (`locked:true`) and tracks (`lockedTracks`); updateClip / removeClip on a locked clip — or on a clip linked to one — and addClip onto a locked track are refused. Leave locked material alone; only if the user asked you to change it, pass force:true on that op (or unlock first: updateClip set:{locked:null}, which is always allowed). All-or-nothing: an invalid op aborts the whole patch unsaved. Optional baseRevision: the revision your ops were planned against (from fablecut_get_project, fablecut_status or the previous patch result) — if the project has moved past it (e.g. the user edited in the UI meanwhile), the patch is refused with CONFLICT and the current revision, nothing saved; re-check the clips you touch, then retry with the new revision. Omit it to apply on top of whatever is latest.",
     inputSchema: {
       type: "object",
       properties: {
@@ -289,7 +292,7 @@ const TOOLS = [
   },
   {
     name: "fablecut_scopes",
-    description: "Measure the graded picture at one moment — what the editor's scopes show, as numbers: luma levels (min, 1st percentile, median, mean, 99th percentile, max on 0–1), the % of pixels crushed to black / clipped to white, mean R/G/B, average saturation, and the colour cast of the midtones (hue name + strength; neutral below 0.01), plus the clips on screen and their grades. Rendered by the same compositor as export (an open editor tab, else headless Chrome / Edge), over the export frame when one is set. Use it to check a grade: e.g. a cast strength above ~0.03 on footage that should be neutral, whitePct above ~1 (clipped highlights), or a median far from ~0.4 for a normally exposed shot. The user's playhead does not move.",
+    description: "Measure the graded picture at one moment — what the editor's scopes show, as numbers: luma levels (min, 1st percentile, median, mean, 99th percentile, max on 0–1), the % of pixels crushed to black / clipped to white, mean R/G/B, average saturation, and the colour cast of the midtones (hue name + strength; neutral below 0.01), plus the clips on screen with their grades, masks, track mattes and blend modes. Rendered by the same compositor as export (an open editor tab, else headless Chrome / Edge), over the export frame when one is set. Use it to check a grade: e.g. a cast strength above ~0.03 on footage that should be neutral, whitePct above ~1 (clipped highlights), or a median far from ~0.4 for a normally exposed shot. The user's playhead does not move.",
     inputSchema: {
       type: "object",
       properties: {
@@ -300,9 +303,43 @@ const TOOLS = [
           properties: { clip: { type: "string" }, layer: { type: "integer", minimum: 0 } },
           required: ["clip", "layer"],
         },
+        mask: {
+          type: "object",
+          description: "Also measure a clip's masks: {clip}. Adds how much of that clip's picture the masks keep (coverage %, the feathered matte measured alone) and how much of the frame the masked clip covers",
+          properties: { clip: { type: "string" } },
+          required: ["clip"],
+        },
         where: { type: "string", enum: ["auto", "tab", "headless"], description: "auto (default): an open editor tab, else headless · tab · headless" },
         timeout: { type: "number", description: "Seconds to wait (default 60)" },
       },
+    },
+  },
+  {
+    name: "fablecut_track",
+    description: "Follow something in a video clip frame by frame (motion tracking, in the editor: an open tab, else headless Chrome / Edge) and store it on the clip as a named track (props.tracks). Then, in the same call, make a mask follow it (apply:{mask}) or pin another clip to it (apply:{clip} — a title, sticker, blur box… its x / y, and optionally scale / rotation, get keyframes that ride on the track, keeping where it is at `at`). What to follow: region {x, y, w, h} or point {x, y} (+ size), as fractions of the clip's picture (0…1, y down) at time `at`; or leave both out with apply:{mask} to follow what that mask covers. To re-apply an existing track, pass its name with apply and no region. Pick something with detail (a corner, a logo, text, an eye), not a flat area; the result reports match quality (≥ 0.8 is solid) and where the region was lost, if it was. Check the outcome with fablecut_scopes or by looking at the keyed clip.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        clip: { type: "string", description: "The video clip to track in" },
+        region: { type: "object", description: "The area to follow at `at`: centre x, y and size w, h, fractions of the clip's picture", properties: { x: { type: "number" }, y: { type: "number" }, w: { type: "number" }, h: { type: "number" } }, required: ["x", "y", "w", "h"] },
+        point: { type: "object", description: "A spot to follow at `at` (fractions of the picture); a square region of `size` around it is matched", properties: { x: { type: "number" }, y: { type: "number" } }, required: ["x", "y"] },
+        size: { type: "number", description: "With point: the region's width, fraction of the picture's width (default 0.08)" },
+        at: { type: "number", description: "Timeline seconds where the region is as given (default: the clip's start)" },
+        direction: { type: "string", enum: ["forward", "backward", "both"], description: "Track from `at` to the clip's end (default), to its start, or both" },
+        to: { type: "number", description: "Timeline seconds to stop at (default: the clip's end / start)" },
+        scale: { type: "boolean", description: "Also follow the region's size (zooms, objects moving closer)" },
+        rotation: { type: "boolean", description: "Also follow the region's rotation" },
+        name: { type: "string", description: "The track's name (default: the mask's name, or Track n). An existing name is extended / replaced over the tracked range" },
+        apply: {
+          type: "object",
+          description: "Bake the track into keys: {mask: index | name} (the mask's x / y — and scale / rotation when tracked — follow) or {clip: id, scale?, rotation?, at?} (that clip rides on the track)",
+          properties: { mask: { type: ["integer", "string"] }, clip: { type: "string" }, scale: { type: "boolean" }, rotation: { type: "boolean" }, at: { type: "number" } },
+        },
+        force: { type: "boolean", description: "Allow changing locked clips — only when the user asked" },
+        where: { type: "string", enum: ["auto", "tab", "headless"], description: "auto (default): an open editor tab, else headless · tab · headless" },
+        timeout: { type: "number", description: "Seconds to wait (default 300)" },
+      },
+      required: ["clip"],
     },
   },
 ];
@@ -795,20 +832,23 @@ function describeScopes(j) {
     `  clipped: black ${st.clipped.blackPct}% · white ${st.clipped.whitePct}%`,
     `  rgb mean [${st.rgbMean.join(", ")}] · saturation ${st.saturation}`,
     `  cast: ${cast.tone === "neutral" ? "neutral" : `${cast.tone} (hue ${cast.hue}°)`} · strength ${cast.strength}`,
-    `On screen (bottom → top): ${(r.clips || []).map((c) => `${c.id} ${c.track} ${c.kind}${c.grade !== "neutral" ? " grade:" + c.grade : ""}`).join(" | ") || "nothing"}`,
+    `On screen (bottom → top): ${(r.clips || []).map((c) => `${c.id} ${c.track} ${c.kind}${c.grade !== "neutral" ? " grade:" + c.grade : ""}${c.masks ? ` masks:[${c.masks}]` : ""}${c.matte ? ` matte:${c.matte}` : ""}${c.isMatte ? " (a matte — not drawn)" : ""}${c.blend ? " blend:" + c.blend : ""}`).join(" | ") || "nothing"}`,
   ];
   const m = r.matte;
   if (m) {
     lines.push(m.error ? `Matte ${m.clip} layer ${m.layer}: ${m.error}` : `Matte of ${m.clip} layer ${m.layer}: covers ${m.coverage}% of the clip's picture` +
       (m.selected ? ` · selected pixels: luma median ${m.selected.luma.median} (p1 ${m.selected.luma.p1}, p99 ${m.selected.luma.p99}) · rgb mean [${m.selected.rgbMean.join(", ")}] · saturation ${m.selected.saturation} · cast ${m.selected.cast.tone === "neutral" ? "neutral" : `${m.selected.cast.tone} (hue ${m.selected.cast.hue}°)`}` : " · nothing selected"));
   }
-  return lines.join("\n") + "\n" + JSON.stringify({ time: r.time, stats: st, ...(m ? { matte: m } : {}) });
+  const k = r.mask;
+  if (k) lines.push(k.error ? `Masks of ${k.clip}: ${k.error}` : `Masks of ${k.clip} (${k.masks}): keep ${k.coverage}% of the clip's picture · the masked clip covers ${k.frameCoverage}% of the frame`);
+  return lines.join("\n") + "\n" + JSON.stringify({ time: r.time, stats: st, ...(m ? { matte: m } : {}), ...(k ? { mask: k } : {}) });
 }
 async function scopesTool(args) {
   if (!(await ensureUIServer())) throw new Error(`the editor server is not running and could not be started on port ${PORT}`);
   const body = { where: args.where || "auto" };
   if (args.time != null) body.time = args.time;
   if (args.matte != null) body.matte = args.matte;
+  if (args.mask != null) body.mask = args.mask;
   const r = await apiJSON("POST", "/api/scopes/request", body);
   if (r.status !== 200) throw new Error(r.body?.error || `scope request failed (${r.status})`);
   let job = r.body;
@@ -827,9 +867,48 @@ async function scopesTool(args) {
   return describeScopes(job);
 }
 
+/* ── Tracking (fablecut_track): runs in the editor, which saves the result ── */
+async function trackTool(args) {
+  if (typeof args.clip !== "string") throw new Error("fablecut_track needs clip");
+  const proj = readProject(), c = proj.clips.find((x) => x.id === args.clip);
+  if (!c) throw new Error("no clip " + args.clip);
+  if (c.kind !== "video") throw new Error(`${c.id} is a ${c.kind} clip — tracking follows a video clip's picture`);
+  for (const k of ["region", "point"]) if (args[k] != null && (typeof args[k] !== "object" || !(k === "region" ? ["x", "y", "w", "h"] : ["x", "y"]).every((q) => Number.isFinite(args[k][q])))) throw new Error(`${k} needs numbers x, y${k === "region" ? ", w, h" : ""} (fractions of the picture)`);
+  if (args.apply != null && (typeof args.apply !== "object" || (args.apply.mask == null && args.apply.clip == null))) throw new Error("apply must be {mask: index | name} or {clip: id}");
+  if (!(await ensureUIServer())) throw new Error(`the editor server is not running and could not be started on port ${PORT}`);
+  const track = {};
+  for (const k of ["clip", "region", "point", "size", "at", "direction", "to", "scale", "rotation", "name", "apply", "force"]) if (args[k] != null) track[k] = args[k];
+  const r = await apiJSON("POST", "/api/track/request", { where: args.where || "auto", track });
+  if (r.status !== 200) throw new Error(r.body?.error || `track request failed (${r.status})`);
+  let job = r.body;
+  const deadline = Date.now() + 1000 * (Number.isFinite(args.timeout) && args.timeout > 0 ? args.timeout : 300);
+  while (job.status === "pending" || job.status === "running") {
+    if (Date.now() > deadline) {
+      await apiJSON("POST", "/api/export/job/cancel?id=" + encodeURIComponent(job.id));
+      throw new Error("timed out waiting for the editor to track — try a shorter range (to), or a larger timeout");
+    }
+    await sleep(500);
+    const q = await apiJSON("GET", "/api/export/job?id=" + encodeURIComponent(job.id));
+    if (q.status !== 200) throw new Error(q.body?.error || "lost track of the tracking job");
+    job = q.body;
+  }
+  if (job.status !== "done") throw new Error(`tracking ${job.status}: ${job.error || "no reason given"}`);
+  const t = job.result || {};
+  return [
+    t.tracked ? `Tracked ${t.clip} "${t.track}" (${t.kind}) ${t.from}–${t.to} s: ${t.samples} samples, match quality min ${t.quality.min} · mean ${t.quality.mean}`
+      : `Used the stored track "${t.track}" on ${t.clip} (${t.from}–${t.to} s, ${t.samples} samples)`,
+    t.lostAt && t.lostAt.length ? `Lost the region at ${t.lostAt.join(", ")} s — the track stops there (pick a spot with more detail, or a larger region, and track on from there)` : "",
+    t.cancelled ? "Cancelled — kept what was tracked so far." : "",
+    t.applied ? `Applied → ${t.applied}` : "Stored only (apply it with apply:{mask} or apply:{clip}).",
+    `Project revision ${t.revision}.`,
+  ].filter(Boolean).join("\n");
+}
+
 /* ── Tool implementations ── */
 async function callTool(name, args, attempt = 0) {
   switch (name) {
+    case "fablecut_track":
+      return trackTool(args);
     case "fablecut_export":
       return exportTool(args);
     case "fablecut_scopes":
@@ -909,6 +988,8 @@ async function callTool(name, args, attempt = 0) {
         letterSpacing: 0, lineHeight: 1.2, textShadow: 12, glow: 0, glowColor: "",
         strokeWidth: 0, strokeColor: "#000", bgColor: "#000", bgOpacity: 0,
         textAnim: "none", wordRate: 0.15, direction: "auto", boxW: 0, boxH: 0, boxFit: false, vAlign: "middle",
+        anchorX: 0, anchorY: 0, trimStart: 0, trimEnd: 100, trimOffset: 0,
+        autoOrient: false, motionBlur: 0, motionBlurSamples: 8, pathOffset: 0, pathAlign: "start",
       };
       const hex = (v) => typeof v === "string" && /^#[0-9a-f]{3}$/i.test(v)
         ? "#" + [...v.slice(1)].map((c) => c + c).join("").toLowerCase()
@@ -924,9 +1005,14 @@ async function callTool(name, args, attempt = 0) {
             kept[k] = v;
             continue;
           }
+          if (k === "masks" || k === "tracks" || k === "shapes" || k === "textPath") continue;   // summarized below — point lists and samples are long
           if (hex(DEFAULTS[k]) !== hex(v)) kept[k] = v;
         }
-        return Object.keys(kept).length ? " " + JSON.stringify(kept) : "";
+        const masks = Mask.describe(Mask.normalizeMasks(o.masks)), tracks = Tracker.describe(Tracker.normalizeTracks(o.tracks));
+        const shapes = Motion.describe(Motion.normalizeShapes(o.shapes));
+        const tp = o.textPath && Motion.normalizeTextPath(o.textPath);
+        if (tp) kept.textPath = tp.type + (tp.points ? `(${tp.points.length})` : tp.w ? ` ${tp.w}×${tp.h}` : "");
+        return (Object.keys(kept).length ? " " + JSON.stringify(kept) : "") + (shapes ? ` [${shapes}]` : "") + (masks ? ` [${masks}]` : "") + (tracks ? ` [tracks: ${tracks}]` : "");
       };
       // Mixer: only off-default faders / pans, so a fresh project adds no line.
       const signed = (v) => (v > 0 ? "+" : "") + v;
@@ -960,13 +1046,14 @@ async function callTool(name, args, attempt = 0) {
           .slice()
           .sort((a, b) => (a.track === b.track ? a.start - b.start : String(a.track).localeCompare(b.track)))
           .map((c) => {
-            const kf = c.keyframes ? " kf:" + Object.entries(c.keyframes).map(([k, v]) => `${k}(${v.length})`).join(",") : "";
+            const kf = c.keyframes ? " kf:" + Object.entries(c.keyframes).map(([k, v]) => `${k}(${v.length})`).join(",") +
+              (Motion.hasPathHandles(c) ? " path:curved" : "") : "";
             const tr = (c.transitionIn ? ` in:${c.transitionIn.type}/${c.transitionIn.duration}` : "") +
                        (c.transitionOut ? ` out:${c.transitionOut.type}/${c.transitionOut.duration}` : "");
             const r3 = (n) => Math.round(n * 1000) / 1000;
             return `  ${c.id} ${c.track} ${r3(c.start)}s+${r3(c.duration)}s ${c.kind}` +
               (c.mediaId ? `(${c.mediaId}${c.in ? ` in:${r3(c.in)}` : ""})` : "") +
-              (c.name ? ` "${c.name}"` : "") + fmtProps(c.props, c.kind) + kf + tr +
+              (c.name ? ` "${c.name}"` : "") + (c.parent ? ` parent:${c.parent}` : "") + fmtProps(c.props, c.kind) + kf + tr +
               (c.locked === true ? " [locked]" : "") + (c.disabled === true ? " [disabled]" : "") +
               (c.unlinked === true ? " [unlinked]" : "") + fxTag(c.fx);
           }),
@@ -1051,6 +1138,67 @@ async function callTool(name, args, attempt = 0) {
           } else target[k] = v;
         }
       };
+      // props.masks written wholesale (addClip / updateClip) is validated like setMask
+      const checkMasks = (c, label) => {
+        if (!c.props || c.props.masks == null) return;
+        if (c.kind === "audio") throw new Error(`${label}: masks go on video, image, svg, text or adjust clips`);
+        let n;
+        try { n = Mask.normalizeMasks(c.props.masks, true); } catch (err) { throw new Error(`${label}: props.${err.message}`); }
+        if (n) c.props.masks = n; else delete c.props.masks;
+      };
+      // props.tracks written wholesale is validated too (the editor writes them; agents rarely should)
+      const checkTracks = (c, label) => {
+        if (!c.props || c.props.tracks == null) return;
+        if (c.kind !== "video") throw new Error(`${label}: tracks belong to video clips`);
+        let n;
+        try { n = Tracker.normalizeTracks(c.props.tracks, true); } catch (err) { throw new Error(`${label}: props.${err.message}`); }
+        if (n) c.props.tracks = n; else delete c.props.tracks;
+      };
+      // props.shapes (shape layers) and clip.parent: validated like setShape / setParent
+      const NO_MEDIA = ["text", "adjust", "shape", "null"];
+      const checkShapes = (c, label) => {
+        if (!c.props || c.props.shapes == null) return;
+        if (c.kind !== "shape") throw new Error(`${label}: shapes go on shape clips (kind:"shape")`);
+        let n;
+        try { n = Motion.normalizeShapes(c.props.shapes, true); } catch (err) { throw new Error(`${label}: props.${err.message}`); }
+        if (n) c.props.shapes = n; else delete c.props.shapes;
+      };
+      const byId = (id) => proj.clips.find((x) => x.id === id) || null;
+      // motion blur, auto-orient, text paths and motion-path handles (pin / pout on x / y keys)
+      const checkMotion = (c, label) => {
+        const p = c.props || {};
+        if (p.motionBlur != null && !(typeof p.motionBlur === "number" && p.motionBlur >= 0 && p.motionBlur <= 720)) throw new Error(`${label}: props.motionBlur is a shutter angle 0…720 (0 = off)`);
+        if (p.motionBlurSamples != null && !(Number.isInteger(p.motionBlurSamples) && p.motionBlurSamples >= 2 && p.motionBlurSamples <= 32)) throw new Error(`${label}: props.motionBlurSamples is a whole number 2…32`);
+        if (p.autoOrient != null && typeof p.autoOrient !== "boolean") throw new Error(`${label}: props.autoOrient is true or false`);
+        if (p.pathAlign != null && !["start", "center", "end"].includes(p.pathAlign)) throw new Error(`${label}: props.pathAlign is start | center | end`);
+        if (p.textPath != null) {
+          if (c.kind !== "text") throw new Error(`${label}: textPath goes on text clips`);
+          try { p.textPath = Motion.normalizeTextPath(p.textPath, true); } catch (err) { throw new Error(`${label}: props.${err.message}`); }
+        }
+        for (const ch of ["x", "y"]) for (const k of (c.keyframes && Array.isArray(c.keyframes[ch]) ? c.keyframes[ch] : []))
+          for (const h of ["pin", "pout"]) if (k && k[h] != null && !(typeof k[h] === "number" && Number.isFinite(k[h])))
+            throw new Error(`${label}: keyframes.${ch} ${h} must be a number (px, the motion path's curve handle)`);
+      };
+      const checkParent = (c, label) => {
+        if (c.parent == null) { delete c.parent; return; }
+        const par = typeof c.parent === "string" && byId(c.parent);
+        if (!par) throw new Error(`${label}: parent ${JSON.stringify(c.parent)} is not a clip`);
+        if (par.id === c.id || Motion.wouldCycle(c.id, par.id, byId)) throw new Error(`${label}: parenting ${c.id} to ${par.id} makes a loop`);
+        if (par.kind === "audio" || par.kind === "adjust" || c.kind === "audio" || c.kind === "adjust")
+          throw new Error(`${label}: parenting is for visual clips (video, image, svg, text, shape, null)`);
+      };
+      // blend / matte / matteTrack: checked when the op writes them
+      const videoTrackIds = () => {
+        const ids = (Array.isArray(proj.tracks) && proj.tracks.length ? proj.tracks : DEFAULT_TRACKS).filter((t) => t.kind === "video").map((t) => t.id);
+        for (const x of proj.clips) if (/^V\d+$/.test(x.track) && !ids.includes(x.track)) ids.push(x.track);
+        return ids;
+      };
+      const checkCompositing = (c, label, props) => {
+        if (!props || !["blend", "matte", "matteTrack"].some((k) => props[k] != null)) return;
+        if (c.kind === "audio") throw new Error(`${label}: blend and track mattes go on video, image, svg, text or adjust clips`);
+        try { Mask.checkCompositing(c.props, videoTrackIds(), c.track, true); } catch (err) { throw new Error(`${label}: props.${err.message}`); }
+        if (!c.props.matte) delete c.props.matteTrack;
+      };
       for (const op of ops) {
         switch (op.op) {
           case "addClip": {
@@ -1060,8 +1208,15 @@ async function callTool(name, args, attempt = 0) {
             c.id = c.id || "c_" + uid();
             if (proj.clips.some((x) => x.id === c.id)) throw new Error("addClip: duplicate clip id " + c.id);
             refuseLocked("addClip", lockedTracks().has(c.track) ? `track ${c.track} is locked` : null, op);
-            if (c.kind !== "text" && c.kind !== "adjust" && !proj.media.some((m) => m.id === c.mediaId))
+            if (!NO_MEDIA.includes(c.kind) && !proj.media.some((m) => m.id === c.mediaId))
               throw new Error(`addClip: unknown mediaId ${c.mediaId}`);
+            if (NO_MEDIA.includes(c.kind)) c.mediaId = null;
+            checkMasks(c, "addClip");
+            checkShapes(c, "addClip");
+            checkParent(c, "addClip");
+            checkMotion(c, "addClip");
+            checkTracks(c, "addClip");
+            checkCompositing(c, "addClip", c.props);
             proj.clips.push(c);
             notes.push("+" + c.id);
             break;
@@ -1077,6 +1232,14 @@ async function callTool(name, args, attempt = 0) {
                 refuseLocked("updateClip", `track ${op.set.track} is locked`, op);
             }
             mergeInto(c, op.set);
+            checkMasks(c, "updateClip");
+            if (op.set && op.set.props && "tracks" in op.set.props) checkTracks(c, "updateClip");
+            if (op.set && op.set.props && "shapes" in op.set.props) checkShapes(c, "updateClip");
+            if (op.set && "parent" in op.set) checkParent(c, "updateClip");
+            checkMotion(c, "updateClip");
+            // a track move re-checks the matte too (a clip can't be its own matte)
+            checkCompositing(c, "updateClip", op.set && op.set.track ? c.props : op.set && op.set.props);
+            if (c.props && c.props.matteTrack && !c.props.matte) delete c.props.matteTrack;   // matte:null clears its track too
             notes.push("~" + op.id);
             break;
           }
@@ -1084,6 +1247,10 @@ async function callTool(name, args, attempt = 0) {
             const doomed = proj.clips.find((x) => x.id === op.id);
             if (doomed) refuseLocked("removeClip", lockReason(doomed), op);
             const n = proj.clips.length;
+            // its children stay where they are (at their own start), under its own parent if it has one
+            const kids = doomed ? proj.clips.filter((x) => x.parent === op.id).map((x) => x.id) : [];
+            if (doomed) EditOps.detachChildren(proj, new Set([op.id]));
+            for (const id of kids) notes.push(`~${id}.parent(${byId(id).parent || "none"})`);
             proj.clips = proj.clips.filter((x) => x.id !== op.id);
             if (proj.clips.length === n) throw new Error("removeClip: no clip " + op.id);
             notes.push("-" + op.id);
@@ -1189,6 +1356,220 @@ async function callTool(name, args, attempt = 0) {
             }
             break;
           }
+          case "setMask":
+          case "removeMask":
+          case "setMaskKeys": {
+            // {op:"setMask", id | ids, mask?: index | "name", set:{…}, replace?:true, remove?:true}
+            // {op:"removeMask", id | ids, mask} · {op:"setMaskKeys", id | ids, mask, keys:[…] | null}
+            const name = op.op;
+            const ids = Array.isArray(op.ids) ? op.ids : op.id != null ? [op.id] : [];
+            if (!ids.length) throw new Error(`${name} needs id or ids`);
+            const remove = name === "removeMask" || op.remove === true;
+            const byName = typeof op.mask === "string" && op.mask.trim() !== "";
+            if (op.mask != null && !byName && !(Number.isInteger(op.mask) && op.mask >= 0)) throw new Error(`${name}: mask is an index (0 = first) or a mask name`);
+            if ((remove || name === "setMaskKeys") && op.mask == null) throw new Error(`${name} needs mask: an index or a name`);
+            let set;
+            if (name === "setMaskKeys") {
+              if (op.keys !== null && !Array.isArray(op.keys)) throw new Error("setMaskKeys needs keys:[{t, x?, y?, …}] (or keys:null to stop animating)");
+              set = { keys: op.keys && op.keys.length ? op.keys : null };
+            } else if (!remove) {
+              if (op.set == null || typeof op.set !== "object" || Array.isArray(op.set)) throw new Error("setMask needs set:{shape?, x?, y?, …} (or remove:true)");
+              set = op.set;
+            }
+            for (const id of ids) {
+              const c = proj.clips.find((x) => x.id === id);
+              if (!c) throw new Error(`${name}: no clip ${id}`);
+              if (c.kind === "audio") throw new Error(`${name}: ${id} is an audio clip — masks go on video, image, svg, text or adjust clips`);
+              refuseLocked(name, lockReason(c), op);
+              const list = (Mask.normalizeMasks(c.props?.masks) || []).slice();
+              let i = op.mask == null ? list.length : byName ? list.findIndex((m) => m.name === op.mask.trim()) : op.mask;
+              const where = `${name}: ${id}`;
+              if (remove) {
+                if (i < 0 || i >= list.length) throw new Error(`${where} has no mask ${JSON.stringify(op.mask)}`);
+                list.splice(i, 1);
+              } else {
+                const adding = i < 0 || i === list.length;
+                if (adding && name === "setMaskKeys") throw new Error(`${where} has no mask ${JSON.stringify(op.mask)}`);
+                if (!adding && i > list.length) throw new Error(`${where} has ${list.length} mask(s) — use mask:${list.length} (or leave mask out) to add one`);
+                if (adding && list.length >= Mask.MAX_MASKS) throw new Error(`${where}: at most ${Mask.MAX_MASKS} masks`);
+                const base = adding ? (byName ? { name: op.mask.trim() } : null) : op.replace ? { name: list[i].name } : list[i];
+                if (adding && !set.shape && !(base && base.shape)) throw new Error(`${where}: a new mask needs set.shape (rect | ellipse | bezier | freehand)`);
+                let next;
+                try { next = Mask.mergeMask(base, set, true); }
+                catch (err) { throw new Error(`${where}: ${err.message.replace(/^mask\.?/, "mask.")}`); }
+                if (adding) { i = list.length; list.push(next); } else list[i] = next;
+              }
+              c.props = c.props || {};
+              if (list.length) c.props.masks = list; else delete c.props.masks;
+              notes.push(`~${id}.masks(${Mask.describe(list) || "none"})`);
+            }
+            break;
+          }
+          case "setShape":
+          case "removeShape": {
+            // {op:"setShape", id | ids, shape?: index | "name" | "2.0" (group path), set:{…}, replace?:true, remove?:true}
+            const name = op.op;
+            const ids = Array.isArray(op.ids) ? op.ids : op.id != null ? [op.id] : [];
+            if (!ids.length) throw new Error(`${name} needs id or ids`);
+            const remove = name === "removeShape" || op.remove === true;
+            if (remove && op.shape == null) throw new Error(`${name} needs shape: an index, a name or a path like "2.0"`);
+            if (!remove && (op.set == null || typeof op.set !== "object" || Array.isArray(op.set))) throw new Error("setShape needs set:{type?, x?, y?, w?, h?, fill?, …} (or remove:true)");
+            const isPath = (v) => Array.isArray(v) || (typeof v === "string" && /^\d+(\.\d+)*$/.test(v.trim()));
+            for (const id of ids) {
+              const c = byId(id);
+              if (!c) throw new Error(`${name}: no clip ${id}`);
+              if (c.kind !== "shape") throw new Error(`${name}: ${id} is a ${c.kind} clip — shapes go on shape clips (addClip kind:"shape")`);
+              refuseLocked(name, lockReason(c), op);
+              const where = `${name}: ${id}`;
+              let list = (Motion.normalizeShapes(c.props?.shapes) || []).slice();
+              // the target as a path [i, j…]; its last index may be one past the end (= add there)
+              let path, named = null;
+              if (op.shape == null) path = [list.length];
+              else if (Number.isInteger(op.shape) && op.shape >= 0) path = [op.shape];
+              else if (isPath(op.shape)) path = (Array.isArray(op.shape) ? op.shape : op.shape.trim().split(".")).map(Number);
+              else if (typeof op.shape === "string" && op.shape.trim()) {
+                path = Motion.itemPaths(list).find((q) => Motion.getItem(list, q).name === op.shape.trim());
+                if (!path) { if (remove) throw new Error(`${where} has no shape named ${JSON.stringify(op.shape)}`); path = [list.length]; named = op.shape.trim(); }
+              } else throw new Error(`${name}: shape is an index (0 = first), a name or a path like "2.0"`);
+              if (path.some((i) => !Number.isInteger(i) || i < 0)) throw new Error(`${name}: bad shape path ${JSON.stringify(op.shape)}`);
+              const parentPath = path.slice(0, -1), last = path[path.length - 1];
+              const group = parentPath.length ? Motion.getItem(list, parentPath) : null;
+              if (parentPath.length && (!group || group.type !== "group")) throw new Error(`${where}: ${parentPath.join(".")} is not a group`);
+              const siblings = group ? group.items : list;
+              const it = siblings[last];
+              if (remove) {
+                if (!it) throw new Error(`${where} has no shape ${JSON.stringify(op.shape)}${list.length ? ` (it has ${Motion.describe(list)})` : ""}`);
+                list = Motion.updateItem(list, path, () => null);
+              } else if (!it) {
+                if (last !== siblings.length) throw new Error(`${where}: ${parentPath.length ? `group ${parentPath.join(".")}` : "the layer"} has ${siblings.length} item(s) — use index ${siblings.length} (or leave shape out) to add one`);
+                if (!op.set.type) throw new Error(`${where}: a new shape needs set.type (${Motion.TYPES.join(" | ")})`);
+                let next;
+                try { next = Motion.normalizeItem({ ...op.set, ...(named && !op.set.name ? { name: named } : {}) }, true, "shape"); }
+                catch (err) { throw new Error(`${where}: ${err.message}`); }
+                list = group ? Motion.updateItem(list, parentPath, (g) => ({ ...g, items: [...g.items, next] })) : [...list, next];
+              } else {
+                let next;
+                const base = op.replace ? { type: it.type, name: it.name, ...(it.type === "group" ? { items: it.items } : {}) } : it;
+                try { next = Motion.mergeItem(base, op.set, true); }
+                catch (err) { throw new Error(`${where}: ${err.message}`); }
+                list = Motion.updateItem(list, path, () => next);
+              }
+              let n;
+              try { n = Motion.normalizeShapes(list, true); } catch (err) { throw new Error(`${where}: ${err.message}`); }
+              c.props = c.props || {};
+              if (n) c.props.shapes = n; else delete c.props.shapes;
+              notes.push(`~${id}.shapes(${Motion.describe(n) || "none"})`);
+            }
+            break;
+          }
+          case "setParent": {
+            // {op:"setParent", id | ids, parent: "c_…" | null, keep?: true, at?: seconds}
+            const ids = Array.isArray(op.ids) ? op.ids : op.id != null ? [op.id] : [];
+            if (!ids.length) throw new Error("setParent needs id or ids");
+            if (op.parent !== null && typeof op.parent !== "string") throw new Error("setParent needs parent: a clip id (or null to unparent)");
+            if (op.at != null && typeof op.at !== "number") throw new Error("setParent: at is a timeline time in seconds");
+            for (const id of ids) {
+              const c = byId(id);
+              if (!c) throw new Error("setParent: no clip " + id);
+              refuseLocked("setParent", lockReason(c), op);
+              const prev = c.parent;
+              c.parent = op.parent;
+              try { checkParent(c, `setParent: ${id}`); } finally { if (prev) c.parent = prev; else delete c.parent; }
+              if (op.keep !== false) {
+                const t = op.at != null ? Math.min(Math.max(op.at, c.start), c.start + c.duration) : c.start;
+                const v = Motion.reparentValues(c, op.parent, byId, t);
+                c.props = c.props || {};
+                for (const [k, val] of Object.entries(v)) if (!c.keyframes?.[k]?.length) c.props[k] = val;
+              }
+              if (op.parent) c.parent = op.parent; else delete c.parent;
+              notes.push(`~${id}.parent(${op.parent || "none"})`);
+            }
+            break;
+          }
+          case "setMotionPath": {
+            // {op:"setMotionPath", id | ids, path?: "smooth" | "straight", autoOrient?: bool}
+            const ids = Array.isArray(op.ids) ? op.ids : op.id != null ? [op.id] : [];
+            if (!ids.length) throw new Error("setMotionPath needs id or ids");
+            if (op.path != null && !["smooth", "straight"].includes(op.path)) throw new Error('setMotionPath: path is "smooth" (curve through the position keys) or "straight"');
+            if (op.autoOrient != null && typeof op.autoOrient !== "boolean") throw new Error("setMotionPath: autoOrient is true or false");
+            if (op.path == null && op.autoOrient == null) throw new Error('setMotionPath needs path:"smooth"|"straight" and / or autoOrient');
+            for (const id of ids) {
+              const c = byId(id);
+              if (!c) throw new Error("setMotionPath: no clip " + id);
+              if (c.kind === "audio" || c.kind === "adjust") throw new Error(`setMotionPath: ${id} is a ${c.kind} clip`);
+              refuseLocked("setMotionPath", lockReason(c), op);
+              if (op.path) {
+                if (Motion.posKeys(c).length < 2) throw new Error(`setMotionPath: ${id} needs x and y keyed together at two or more times first (the position keys)`);
+                c.keyframes = op.path === "smooth" ? Motion.smoothPath(c.keyframes) : Motion.straightPath(c.keyframes);
+              }
+              if (op.autoOrient != null) { c.props = c.props || {}; if (op.autoOrient) c.props.autoOrient = true; else delete c.props.autoOrient; }
+              notes.push(`~${id}.motionPath(${Motion.posKeys(c).length} keys${Motion.hasPathHandles(c) ? ", curved" : ""}${c.props && c.props.autoOrient ? ", auto-orient" : ""})`);
+            }
+            break;
+          }
+          case "setTextPath": {
+            // {op:"setTextPath", id | ids, path: "line" | "arc" | "circle" | "wave" | {type, …} | null, offset?, align?}
+            const ids = Array.isArray(op.ids) ? op.ids : op.id != null ? [op.id] : [];
+            if (!ids.length) throw new Error("setTextPath needs id or ids");
+            if (op.path === undefined && op.offset == null && op.align == null) throw new Error("setTextPath needs path (a preset name, a shape item or null), offset and / or align");
+            let item;
+            if (op.path === null) item = null;
+            else if (typeof op.path === "string") {
+              if (!Motion.TEXT_PATH_PRESETS[op.path]) throw new Error(`setTextPath: path is ${Object.keys(Motion.TEXT_PATH_PRESETS).join(" | ")}, a shape item or null`);
+              item = Motion.normalizeTextPath(Motion.TEXT_PATH_PRESETS[op.path], true);
+            } else if (op.path !== undefined) {
+              try { item = Motion.normalizeTextPath(op.path, true); } catch (err) { throw new Error(`setTextPath: ${err.message}`); }
+            }
+            if (op.offset != null && typeof op.offset !== "number") throw new Error("setTextPath: offset is % of the path's length");
+            if (op.align != null && !["start", "center", "end"].includes(op.align)) throw new Error("setTextPath: align is start | center | end");
+            for (const id of ids) {
+              const c = byId(id);
+              if (!c) throw new Error("setTextPath: no clip " + id);
+              if (c.kind !== "text") throw new Error(`setTextPath: ${id} is a ${c.kind} clip — text paths go on text clips`);
+              refuseLocked("setTextPath", lockReason(c), op);
+              c.props = c.props || {};
+              if (op.path !== undefined) { if (item) c.props.textPath = JSON.parse(JSON.stringify(item)); else delete c.props.textPath; }
+              if (op.offset != null) c.props.pathOffset = op.offset;
+              if (op.align != null) c.props.pathAlign = op.align;
+              notes.push(`~${id}.textPath(${c.props.textPath ? c.props.textPath.type : "none"})`);
+            }
+            break;
+          }
+          case "removeTrack": {
+            // {op:"removeTrack", id, track: "name" | index} — what follows it keeps its keys
+            const c = proj.clips.find((x) => x.id === op.id);
+            if (!c) throw new Error("removeTrack: no clip " + op.id);
+            refuseLocked("removeTrack", lockReason(c), op);
+            const list = Tracker.normalizeTracks(c.props?.tracks) || [];
+            const i = typeof op.track === "string" ? list.findIndex((t) => t.name === op.track) : op.track;
+            if (!list[i]) throw new Error(`removeTrack: ${op.id} has no track ${JSON.stringify(op.track)}${list.length ? ` (it has ${Tracker.describe(list)})` : ""}`);
+            list.splice(i, 1);
+            if (list.length) c.props.tracks = list; else delete c.props.tracks;
+            notes.push(`~${op.id}.tracks(${Tracker.describe(list) || "none"})`);
+            break;
+          }
+          case "setMatte": {
+            // {op:"setMatte", id | ids, matte:"alpha"|"alpha-inverted"|"luma"|"luma-inverted"|null, track?:"V3"|null}
+            const ids = Array.isArray(op.ids) ? op.ids : op.id != null ? [op.id] : [];
+            if (!ids.length) throw new Error("setMatte needs id or ids");
+            if (op.matte !== null && !Mask.MATTES.includes(op.matte)) throw new Error(`setMatte needs matte: ${Mask.MATTES.join(" | ")} (or null for none)`);
+            for (const id of ids) {
+              const c = proj.clips.find((x) => x.id === id);
+              if (!c) throw new Error("setMatte: no clip " + id);
+              if (c.kind === "audio") throw new Error(`setMatte: ${id} is an audio clip — track mattes go on video, image, svg, text or adjust clips`);
+              refuseLocked("setMatte", lockReason(c), op);
+              c.props = c.props || {};
+              if (op.matte === null) { delete c.props.matte; delete c.props.matteTrack; notes.push(`~${id}.matte(none)`); continue; }
+              c.props.matte = op.matte;
+              if (op.track === null) delete c.props.matteTrack;
+              else if (op.track != null) c.props.matteTrack = op.track;
+              try { Mask.checkCompositing(c.props, videoTrackIds(), c.track, true); } catch (err) { throw new Error(`setMatte: ${id}: ${err.message.replace(/^matteTrack/, "track")}`); }
+              const from = Mask.matteTrackFor(c, videoTrackIds());
+              if (!from) throw new Error(`setMatte: ${id} is on ${c.track} and there is no video track above it — pass track:"Vn" (or add a track)`);
+              notes.push(`~${id}.matte(${op.matte} from ${from})`);
+            }
+            break;
+          }
           case "setTrack": {
             // Mixer settings on one lane: {op:"setTrack", id:"A1", set:{gain:-6, pan:0.2}}.
             if (!/^A\d+$/.test(String(op.id || ""))) throw new Error("setTrack: id must be an audio track (A1, A2, …)");
@@ -1273,7 +1654,7 @@ async function callTool(name, args, attempt = 0) {
             notes.push(timelineEdit(proj, op, refuseLocked, lockReason));
             break;
           default:
-            throw new Error("Unknown op: " + op.op + " (addClip|updateClip|removeClip|addMedia|removeMedia|setProject|setTrack|setBus|removeBus|setFx|setFxKeys|setGrade|setGradeLayer|" +
+            throw new Error("Unknown op: " + op.op + " (addClip|updateClip|removeClip|addMedia|removeMedia|setProject|setTrack|setBus|removeBus|setFx|setFxKeys|setGrade|setGradeLayer|setMask|removeMask|setMaskKeys|setMatte|removeTrack|setShape|removeShape|setParent|setMotionPath|setTextPath|" +
               "split|rippleDelete|closeGap|lift|extract|rippleTrim|roll|slip|slide|insert|overwrite|crossfade)");
         }
       }
@@ -1298,8 +1679,13 @@ async function callTool(name, args, attempt = 0) {
       for (const c of doc.clips) {
         if (!c.id || !c.track || typeof c.start !== "number" || typeof c.duration !== "number")
           throw new Error(`clip ${c.id || "?"} needs id, track, numeric start and duration`);
-        if (c.kind !== "text" && c.kind !== "adjust" && !doc.media.some((m) => m.id === c.mediaId))
+        if (!["text", "adjust", "shape", "null"].includes(c.kind) && !doc.media.some((m) => m.id === c.mediaId))
           throw new Error(`clip ${c.id} references unknown mediaId ${c.mediaId}`);
+        if (c.kind === "shape" && c.props && c.props.shapes != null) {
+          let n;
+          try { n = Motion.normalizeShapes(c.props.shapes, true); } catch (err) { throw new Error(`clip ${c.id}: props.${err.message}`); }
+          if (n) c.props.shapes = n; else delete c.props.shapes;
+        }
       }
       let cur = { revision: 0 };
       try { cur = readProject(); } catch {}
@@ -1563,7 +1949,7 @@ async function handle(msg) {
         result: {
           protocolVersion: negotiateProtocolVersion(params?.protocolVersion),
           capabilities: { tools: {} },
-          serverInfo: { name: "fablecut", version: "1.12.1" },
+          serverInfo: { name: "fablecut", version: "1.13.0" },
         },
       });
     }

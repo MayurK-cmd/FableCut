@@ -568,7 +568,28 @@ const server = http.createServer(async (req, res) => {
       if (m != null && (typeof m !== "object" || typeof m.clip !== "string" || !Number.isInteger(m.layer) || m.layer < 0)) {
         sendJSON(res, 400, { error: "matte must be {clip: \"<clip id>\", layer: <index ≥ 0>}" }); return;
       }
-      sendJSON(res, 200, exportJobs.request({ kind: "scopes", time, where: opts.where, revision, matte: m || null, image: opts.image === true }));
+      const mk = opts.mask;
+      if (mk != null && (typeof mk !== "object" || typeof mk.clip !== "string")) {
+        sendJSON(res, 400, { error: "mask must be {clip: \"<clip id>\"}" }); return;
+      }
+      sendJSON(res, 200, exportJobs.request({ kind: "scopes", time, where: opts.where, revision, matte: m || null, mask: mk || null, image: opts.image === true }));
+    } catch (e) {
+      sendJSON(res, e.code === 409 || e.code === 400 ? e.code : 500, { error: String(e.message || e) });
+    }
+    return;
+  }
+  /* API: follow a region of a clip (fablecut_track) — a "track" job on the
+     same queue; the tab that runs it saves the track into the project. */
+  if (p === "/api/track/request" && req.method === "POST") {
+    try {
+      const opts = JSON.parse((await readBody(req)).toString("utf8") || "{}");
+      let revision = null;
+      try { revision = JSON.parse(fs.readFileSync(PROJECT_FILE, "utf8").replace(/^﻿/, "")).revision ?? null; } catch {}
+      const t = opts.track;
+      if (!t || typeof t !== "object" || Array.isArray(t) || typeof t.clip !== "string") { sendJSON(res, 400, { error: "track must be {clip: \"<clip id>\", …}" }); return; }
+      const body = JSON.stringify(t);
+      if (body.length > 8192) { sendJSON(res, 400, { error: "track spec too large" }); return; }
+      sendJSON(res, 200, exportJobs.request({ kind: "track", where: opts.where, revision, track: JSON.parse(body) }));
     } catch (e) {
       sendJSON(res, e.code === 409 || e.code === 400 ? e.code : 500, { error: String(e.message || e) });
     }

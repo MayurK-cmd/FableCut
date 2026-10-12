@@ -54,6 +54,31 @@ const PAGES = [
     parts: [["project.json schema", "Color"]],
   },
   {
+    slug: "masks", nav: "Masks", title: "Masks", group: "The timeline",
+    lede: "Cut what a clip shows with rectangles, ellipses, bezier and free-hand shapes: feathered, expanded, inverted, combined and keyframed, from the monitor or from an agent with setMask.",
+    parts: [["project.json schema", "Masks"]],
+  },
+  {
+    slug: "compositing", nav: "Track mattes and blending", title: "Track mattes and blending", group: "The timeline",
+    lede: "Cut a clip with the picture on another track by its alpha or its brightness, and lay clips over each other with blend modes, from the Inspector or from an agent with setMatte.",
+    parts: [["project.json schema", "Track mattes and blending"]],
+  },
+  {
+    slug: "tracking", nav: "Tracking", title: "Motion tracking", group: "The timeline",
+    lede: "Follow a point or a region through a video clip, then make a mask follow it or pin a title, sticker or another clip to it, from the Inspector or from an agent with fablecut_track.",
+    parts: [["project.json schema", "Tracking"]],
+  },
+  {
+    slug: "motion", nav: "Shapes and parenting", title: "Shapes, nulls and parenting", group: "The timeline",
+    lede: "Motion graphics: vector shape layers with fills, strokes, groups and trim paths, null objects, parenting and the anchor point, keyframed on the monitor or by an agent with setShape and setParent.",
+    parts: [["project.json schema", "Shapes, nulls and parenting"]],
+  },
+  {
+    slug: "motion-paths", nav: "Motion paths", title: "Motion paths, motion blur and text on a path", group: "The timeline",
+    lede: "Bend a clip's travel into a curve, turn it along the way, blur fast moves with a shutter angle, and set titles along lines, arcs, circles and drawn paths, on the monitor or by an agent with setMotionPath and setTextPath.",
+    parts: [["project.json schema", "Motion paths, motion blur and text on a path"]],
+  },
+  {
     slug: "editing", nav: "Editing rules", title: "Editing rules", group: "The timeline",
     lede: "How tracks, links, locks, targeting and the trim tools behave, for people and agents alike.",
     parts: [["project.json schema", "Semantics"]],
@@ -345,13 +370,14 @@ function pageBody(pg, ctx) {
   let html = "";
   for (const [name, which] of pg.parts) {
     const s = find(name);
-    ctx.lines.push(s.line);
     if (which && which !== "*") {
       const x = findSub(s, which);
+      ctx.lines.push(x.line);   // the edit link opens the subsection itself
       if (multi) html += heading(2, x.title, ctx);
       html += render(x.lines, { ...ctx, level: multi ? 3 : 2 });
       continue;
     }
+    ctx.lines.push(s.line);
     if (multi) html += heading(2, shortTitle(s.title), ctx);
     html += render(s.intro, { ...ctx, level: multi ? 3 : 2 });
     if (which === "*") for (const x of s.subs) {

@@ -45,7 +45,10 @@ Every Claude Code session then has these tools:
 - `fablecut_export` — render the timeline to a file in `exports/` with the editor's own
   Fast export (open tab, or headless Chrome / Edge). See "Export" below.
 - `fablecut_scopes` — measure the graded picture at a moment (levels, clipping, colour
-  cast), as the editor's scopes see it. See "Color" below.
+  cast), as the editor's scopes see it; also what a grade layer or a clip's masks
+  select. See "Color" and "Masks" below.
+- `fablecut_track` — motion tracking: follow a region of a video clip, store it as
+  a track, and make a mask or another clip follow it. See "Tracking" below.
 
 ### Token-efficient editing (important for agents)
 
@@ -288,8 +291,8 @@ Examples in `library/svg/`: `sparkles.svg` (loop), `lower-third.svg`,
   "clips": [
     {
       "id": "c_xyz",             // unique string
-      "mediaId": "m_abc",        // null for kind:"text" and kind:"adjust"
-      "kind": "video",           // video | audio | image | svg | text | adjust
+      "mediaId": "m_abc",        // null for kind:"text", "adjust", "shape" and "null"
+      "kind": "video",           // video | audio | image | svg | text | adjust | shape | null
       "track": "V1",             // Vn…V1 (video) | A1…An (audio); extras via UI +V/+A or tracks[]
       "start": 0,                // timeline position, seconds
       "in": 2.5,                 // offset into source media, seconds (0 for image/svg/text)
@@ -299,10 +302,13 @@ Examples in `library/svg/`: `sparkles.svg` (loop), `lower-third.svg`,
       "locked": true,            // OPTIONAL — locked by the user: leave it alone (MCP patch refuses edits)
       "disabled": true,          // OPTIONAL — stays on the timeline, hidden from preview / audio / export
       "unlinked": true,          // OPTIONAL — the user unlinked this clip; never auto-relinked on load
+      "parent": "c_null",        // OPTIONAL — moves, turns and scales with that clip (see "Shapes, nulls and parenting")
       "props": { /* all optional — see the props reference below */ },
       // OPTIONAL — keyframe animation. Times are seconds RELATIVE TO CLIP START.
       // "ease" sits on the DESTINATION keyframe of each segment:
       // linear | ease-in | ease-out | ease-in-out (default ease-in-out).
+      // x and y keys at the same time are a position key; pin / pout on them (px)
+      // are motion-path curve handles (see "Motion paths, motion blur and text on a path").
       "keyframes": {
         "scale":   [ { "t": 0, "v": 1 }, { "t": 5, "v": 1.25, "ease": "linear" } ],
         "opacity": [ { "t": 0, "v": 0 }, { "t": 0.8, "v": 1 } ]
@@ -326,7 +332,11 @@ Examples in `library/svg/`: `sparkles.svg` (loop), `lower-third.svg`,
 | `scale` | 1 | |
 | `rotation` | 0 | degrees |
 | `opacity` | 1 | 0–1 |
-| `blend` | "normal" | multiply · screen · overlay · lighter · soft-light · hard-light · color-dodge · darken · lighten · difference |
+| `anchorX`, `anchorY` | 0 | anchor point, px from the picture's centre: the point `x`/`y` place and `rotation`/`scale` turn around |
+| `autoOrient` | false | turn the clip with its direction of travel along its motion path (`rotation` adds on top) |
+| `motionBlur` · `motionBlurSamples` | 0 · 8 | motion blur: shutter angle in degrees (0 = off, 180 = film look, up to 720) · sub-frame samples 2–32 |
+| `blend` | "normal" | how the clip lays over what is under it (see Track mattes and blending) |
+| `matte` · `matteTrack` | — | a track matte (see Track mattes and blending) |
 
 **Layout** (video/image/svg):
 | prop | default | notes |
@@ -399,6 +409,8 @@ These are quick looks. For real grading use `props.grade` (see "Color" below).
 | `bgColor` `bgOpacity` | "#000", 0 | rounded pill behind each line |
 | `textAnim` | "none" | typewriter · word-pop · word-slide · karaoke · **letter-pop** (per-character entrance; Arabic/Indic auto-fallback to per-word clusters so joined letters shape correctly) · **wave** (looping per-character ride; same shaping fallback) · **bounce** (looping per-word hop) · **shake** (looping jitter) · **clip-reveal** (wipe-mask sweep, per line) · **zoom-in** (scale + opacity settle) · **font-cut** (rhythmically swaps typeface, then settles — see `fontCutSet`) · **rise-mask** (line rises from behind its baseline, lower-third reveal) |
 | `wordRate` | 0.15 | seconds per word (typewriter: /4, letter-pop: /3 per character); also staggers `clip-reveal`/`zoom-in`/`rise-mask` per line |
+| `textPath` | — | set the title along a path: one shape item (`path`, `line`, `ellipse`, `rect`, `polygon`, `star`) whose outline is the baseline; more lines follow on parallel curves below it. See "Motion paths, motion blur and text on a path" |
+| `pathOffset` · `pathAlign` | 0 · "start" | where along the path the text sits (% of its length, keyframable, wraps on closed paths) · which end of the text sits there: start · center · end |
 | `fontCutSet` | (curated) | array of font family names cycled by `font-cut`, e.g. `["Anton","Bebas Neue","Archivo Black","Oswald"]`; each is auto-loaded |
 
 **Title styles (one-tap cohesive looks).** Text clips created in the UI now
@@ -437,7 +449,16 @@ intensity. Keyframe/transition it like any clip. Put it on V2/V3 above the
 footage. Example: 0.3 s impact shake over everything =
 `{kind:"adjust", track:"V3", duration:0.3, props:{shake:18}}`.
 
-**Animatable props** (usable in `keyframes`): x, y, scale, rotation, opacity,
+**Masks** (`masks`, video/image/svg/text/adjust): shapes that cut what the clip
+shows — rect, ellipse, bezier, free-hand; feather, expand, invert, add /
+subtract / intersect, keyframes. See "Masks" below.
+
+**Shape layers** (`kind:"shape"`): `props.shapes` (rectangles, ellipses,
+polygons, stars, lines, bezier paths, groups) and `trimStart` / `trimEnd` /
+`trimOffset` (%, a draw-on of every path). **Null objects** (`kind:"null"`)
+never render; other clips are parented to them. See "Shapes, nulls and parenting".
+
+**Animatable props** (usable in `keyframes`): x, y, scale, rotation, opacity, anchorX, anchorY, trimStart, trimEnd, trimOffset, pathOffset,
 volume, pan, duck, speed, brightness, contrast, saturation, hue, blur, grayscale, sepia,
 invert, temperature, tint, vignette, cornerRadius, shake, rgbSplit, grain,
 fontSize, letterSpacing, glow.
@@ -632,12 +653,12 @@ each one's qualifier looks at the picture as it reaches that layer.
 | `qualifier.hue` | `[centre°, width°, soft°]` — hues within ±width/2 of the centre, easing out over `soft`; wraps through red. Greys carry no hue, so a hue range leaves them out |
 | `qualifier.sat` · `qualifier.luma` | `[low, high, soft]` on 0…1 — saturation (HSV) / Rec.709 luma between low and high |
 | `qualifier.invert` | select everything else |
-| `mask.shape` | `ellipse` · `rect` · `poly` |
+| `mask.shape` | `ellipse` · `rect` · `poly` · `bezier` (or `freehand` with a `stroke`, fitted into a bezier — see "Masks") |
 | `mask.x` · `mask.y` | centre, as fractions of the clip's picture (0…1, y down) |
 | `mask.w` · `mask.h` | size, fractions of the picture's width / height (ellipse, rect) |
 | `mask.rotation` | degrees, clockwise |
 | `mask.feather` | soft edge, a fraction of the picture's height (0…0.5), centred on the outline |
-| `mask.points` | poly: 3–16 `[dx, dy]` corners around `x, y` (fractions of width / height) |
+| `mask.points` | poly: 3–16 `[dx, dy]` corners around `x, y` (fractions of width / height); bezier: 3–24 anchors `[dx, dy]` or `[dx, dy, inX, inY, outX, outY]` with curve handles |
 | `mask.invert` | grade outside the shape |
 | `mask.keys` | animate it: `[{t, x?, y?, w?, h?, rotation?, feather?, ease?}]`, `t` in seconds from the clip's start; each param eases between the keys that set it (`ease` on the arriving key, as for clip keyframes) |
 
@@ -652,8 +673,9 @@ curves edit that layer, and three more sections appear: the layer's name,
 reorder, **Delete**; **Qualifier** — **Pick** then click a colour in the
 monitor to select its hue, saturation and luma, then tune the ranges; and
 **Mask** — pick a shape and drag it on the monitor (inside moves it, the
-handles resize it, the knob rotates it, Shift snaps to 15°; on a poly,
-Ctrl-click adds a point and double-click removes one). **◆ Key** keys the
+handles resize it, the knob rotates it, Shift snaps to 15°; on a poly or
+bezier, Ctrl-click adds a point and double-click removes one), or **Draw** a
+free-hand outline on the monitor (it becomes a bezier). **◆ Key** keys the
 shape at the playhead; once it has keys, every change to the shape keys.
 
 **Wheel colours.** A wheel's `r, g, b` normally carry no brightness: they are a
@@ -715,6 +737,420 @@ Workflow for matching shots: grade the hero shot, measure it, then grade every
 other shot of the scene until its median and cast land near the hero's. In the
 editor, **Copy** / **Paste** on the Color tab pastes one clip's grade onto every
 selected clip.
+
+### Masks
+
+A clip's masks cut what it shows: only the parts the masks keep reach the
+frame, so a clip can be isolated, revealed or cut through, and anything under
+it shows in the gaps. They live in `props.masks` on any video, image, svg,
+text or adjustment clip. On an adjustment layer they limit where its effects
+and grade apply. They run in preview and export alike. The clip draws as usual,
+the masks cut it, and then its `opacity` and `blend` composite it.
+
+```jsonc
+"masks": [
+  { "name": "Subject", "shape": "ellipse", "x": 0.52, "y": 0.45, "w": 0.4, "h": 0.7, "feather": 40 },
+  { "name": "Hole", "shape": "rect", "mode": "subtract", "x": 0.6, "y": 0.4, "w": 0.1, "h": 0.1 },
+  { "shape": "bezier", "x": 0.3, "y": 0.7, "expand": 8,
+    "points": [[0, -0.1], [0.12, 0.08, 0, -0.05, 0, 0.05], [-0.12, 0.08]],
+    "keys": [{ "t": 0, "x": 0.3 }, { "t": 2, "x": 0.6, "ease": "linear" }] }
+]
+```
+
+| key | default | does |
+|---|---|---|
+| `shape` | — | `rect` · `ellipse` · `bezier` (write `freehand` with a `stroke` to have one drawn for you) |
+| `x` · `y` | 0.5 | centre, as fractions of the clip's picture (0…1, y down) |
+| `w` · `h` | 0.5 | size, fractions of the picture's width / height (rect, ellipse) |
+| `points` | — | bezier: 3–64 anchors around `x, y`, each `[dx, dy]` (a corner) or `[dx, dy, inX, inY, outX, outY]` (with curve handles relative to the anchor), all fractions of the picture's width / height |
+| `stroke` | — | freehand only: `[[u, v], …]` picture fractions along an outline; it is simplified and stored as an editable `bezier` |
+| `scale` · `rotation` | 1 · 0 | about the centre; degrees clockwise |
+| `mode` | `add` | how this mask combines with the ones before it: `add` · `subtract` · `intersect` · `difference` |
+| `invert` | false | use everything outside the shape |
+| `opacity` | 1 | 0…1, how strongly this mask counts |
+| `feather` | 0 | soft edge, project pixels, centred on the outline |
+| `expand` | 0 | grow (+) or shrink (−) the outline, project pixels |
+| `name` · `on` | — | a label; `on:false` turns the mask off |
+| `keys` | — | animate it: `[{t, x?, y?, w?, h?, scale?, rotation?, feather?, expand?, opacity?, points?, ease?}]`, `t` in seconds from the clip's start; each param eases between the keys that set it (`ease` on the arriving key, as for clip keyframes). `points` keys morph the outline and need the shape's point count |
+
+Masks combine bottom-up (first in the list first). The first one starts from
+nothing when it adds and from the whole picture otherwise, so a lone
+`subtract` cuts a hole in a full picture. At most 8 masks per clip.
+
+The picture a mask lives in is the clip's drawn rectangle for video, image
+and svg (after fit and crop), the text block for text, and the whole canvas
+for an adjustment layer. Masks follow the clip when it is moved, scaled,
+rotated or flipped, and keep the clip's keyframes.
+
+In the editor, the **Masks** section of the Inspector has **+ Rect**,
+**+ Ellipse**, **Pen** (click points on the monitor, drag while placing one to
+pull curve handles, click the first point or press Enter to close) and
+**Draw** (drag a free-hand outline). **Matte** shows the clip's matte in the
+monitor (white = visible). Pick a mask's chip to edit it: mode, **Invert**,
+the sliders, ↑ ↓ to reorder, **Copy**, **Delete**, and on the monitor, drag
+inside to move it, the edge handles to resize it and the knob to rotate it
+(Shift snaps to 15°). On a bezier, drag a point to move it, drag its handles
+to curve it (Alt breaks the pair), Alt-drag a point to pull fresh handles,
+Ctrl-click the outline to add a point, and double-click a point to remove
+it. **◆ Key** keys the whole mask at the playhead; once it has keys, every
+change keys. Esc steps back (point, then mask).
+
+**Agents** edit masks with patch ops:
+
+- `{op:"setMask", id, set:{shape:"ellipse", x:0.5, y:0.45, w:0.4, h:0.7, feather:40}}`
+  adds a mask (no `mask`, an index one past the end or a new name adds one; a
+  new mask needs `shape`). `{op:"setMask", id, mask:"Subject", set:{x:0.6}}`
+  edits one, by index (0 = first) or name, merging key by key (`null` resets a
+  key). `replace:true` starts it over, keeping its name. `ids:[…]` edits several clips.
+- A drawn outline: `set:{shape:"freehand", stroke:[[0.4, 0.3], [0.6, 0.32], …]}`.
+  It is stored as an editable bezier.
+- `{op:"setMaskKeys", id, mask, keys:[{t:0, x:0.3}, {t:2, x:0.7}]}` animates
+  one (`keys:null` stops it); `{op:"removeMask", id, mask}` deletes one.
+- `props.masks` written through `addClip` / `updateClip` is validated the same
+  way. Bad keys, shapes or values refuse the whole patch. Locks apply
+  (`force:true` as elsewhere).
+- `fablecut_scopes {time, mask:{clip}}` measures them: the % of the clip's
+  picture its masks keep (the feathered matte, measured alone) and the % of
+  the frame the masked clip covers. The compact project view lists each
+  clip's masks as `[2 masks: ellipse feather 40, rect subtract]`.
+
+Recipes: **spotlight** — a feathered ellipse on the clip; **split screen** —
+two clips on V1 / V2, a `rect` on the top one covering its half; **cut a
+logo out of the background** — a bezier around it, `feather` 2–4;
+**reveal** — a rect whose `w` (or `x`) keys from 0 to full; **effects only
+on the face** — an adjustment layer with a feathered ellipse, keyed to follow
+it; **vignette through an adjustment layer** — an inverted ellipse with
+`feather:200` and the layer's `brightness` down.
+
+### Track mattes and blending
+
+A **track matte** cuts a clip with the picture on another track: where that
+picture is opaque (alpha) or bright (luma), the clip shows. Set it on the
+clip being cut, the fill:
+
+| prop | does |
+|---|---|
+| `matte` | `alpha` · `alpha-inverted` · `luma` · `luma-inverted`. Alpha keeps the clip where the matte's pixels are opaque, luma where they are bright (white = shows, black = gone, Rec. 709 weights). The inverted modes keep the opposite |
+| `matteTrack` | the video track the matte comes from. Default: the video track directly above the clip (V2 for a clip on V1) |
+
+The matte track does not draw into the frame while a clip on screen uses it;
+it only cuts. Its clips keep their own transform, keyframes, opacity, masks
+and effects, so the matte can move, scale and animate on its own. When the
+matte track has nothing at that moment, `alpha` / `luma` show nothing of the
+clip and the inverted modes show all of it. Track mattes and masks combine:
+the matte cuts the clip, then its masks cut what is left, then `opacity` and
+`blend` composite it. A clip used as a matte is drawn without its own track
+matte. Audio clips take neither.
+
+`blend` is how a clip lays over what is under it: `normal` · `multiply` ·
+`screen` · `overlay` · `darken` · `lighten` · `color-dodge` · `color-burn` ·
+`hard-light` · `soft-light` · `difference` · `exclusion` · `hue` ·
+`saturation` · `color` · `luminosity` · `lighter` (add). Blending happens after
+masks and mattes, so a masked clip only blends where it is kept.
+
+In the editor, **Track matte** and **Matte track** sit under **Blend** in the
+Inspector's Transform section (the Adjustment layer section for an adjustment
+layer). The timeline marks a clip with a track matte ◐ and shows the clips
+that serve as its matte hatched, labelled **Matte**.
+
+**Agents:** `{op:"setMatte", id, matte:"luma"}` (or `ids:[…]`; `track:"V3"`
+picks the matte track, `track:null` goes back to the one above;
+`matte:null` removes it). `blend`, `matte` and `matteTrack` written through
+`addClip` / `updateClip` are validated too. `fablecut_scopes` lists each clip
+on screen with its `matte` (e.g. `luma from V2`), `blend`, and whether it is a
+matte itself.
+
+Recipes: **text filled with video** — the text on V2, the video on V1 with
+`matte:"alpha"`; **a shape reveal** — an svg or a masked solid on V2 whose
+scale keys up, the shot on V1 with `matte:"alpha"`; **light leaks / film
+burn** on V2 with `blend:"screen"`; **a grade only in the bright areas** — an
+adjustment layer with `matte:"luma"` over a copy of the shot;
+**a cut-out through a texture** — `luma-inverted` against a black-and-white
+texture.
+
+### Tracking
+
+Motion tracking follows something in a video clip frame by frame: a corner, a
+logo, a face, a sign. The result is a **track** stored on the clip, and masks
+and other clips **follow** it by having it written into their keys. Rendering
+never reads a track, so a followed mask or title renders and exports exactly
+like a hand-keyed one, and you can edit its keys afterwards.
+
+```jsonc
+"tracks": [
+  { "name": "Logo", "kind": "point", "w": 0.08, "h": 0.14,
+    "samples": [[0, 0.31, 0.42, 1, 0, 1], [0.0333, 0.312, 0.421, 1, 0, 0.98]] }
+]
+```
+
+| key | does |
+|---|---|
+| `name` | how masks, clips and agents refer to it (default `Track n`, or the mask's name) |
+| `kind` | `point` (position) or `box` (position, size and rotation were followed) |
+| `w` · `h` | the region that was matched, fractions of the clip's picture |
+| `samples` | one per frame: `[t, x, y, s, r, q]`. `t` is seconds from the clip's start, `x, y` is the centre (fractions of the picture, like masks), `s` is the scale and `r` the rotation (°) relative to the first sample, `q` is the match quality 0…1 |
+
+The tracker matches a small greyscale template of the region (normalized
+cross-correlation, sub-pixel, optionally over scale and rotation) and keeps
+the template fresh while anchoring it to the first frame so it does not
+drift. It stops where the match quality drops below 0.45 (the region was
+covered, left the frame or changed too much) and keeps what it tracked up to
+there. Pick regions with detail: corners, text, edges. Flat sky or a blank
+wall can't be tracked. A track without scale follows position only: if the
+thing grows, shrinks or turns noticeably, turn on Scale / Rotate (`scale` /
+`rotation`), or the match fades and the track stops early. Tracks are stored in clip time, so they move with the clip and follow
+trims and splits (re-track after changing its speed).
+
+In the editor:
+
+- **Mask tracking.** Select a mask on a video clip. Under its mode row,
+  **◀ Back** and **On ▶** follow what the mask covers from the playhead to
+  the clip's start or end, and key the mask's `x` / `y`. Turn on **Scale**
+  and **Rotate** to key those too. The keys are linear and simplified (a key
+  only where the motion turns, within ~1.5 px). Keys the mask had in that range lose their
+  position and keep everything else.
+- **Point tracking.** The Inspector's **Tracking** section (video clips):
+  **+ Track point**, then click the spot on the monitor. It tracks from the
+  playhead to the clip's end. **Region** sets the matched area (% of the
+  picture's width). Pick a track's chip to see its path and region on the
+  monitor, **◀ Track back** / **Track on ▶** to extend it from the playhead,
+  and **Delete** it.
+- **Attach a clip.** With a track picked, choose a clip in **Attach**
+  (any visual clip that overlaps it in time) and press **Attach to the track**. The clip
+  gets `x` / `y` keyframes (plus `scale` / `rotation` with those toggles on)
+  that ride on the track and keep it where it is at the playhead. Stickers,
+  titles, a blur box or a highlight then stay pinned to the moving thing.
+- Tracking runs from a private copy of the video, so the monitor does not
+  move. Progress shows in the Inspector, and **Esc** stops it and keeps what
+  it has. Each finished track is one undo step.
+
+**Agents:** `fablecut_track` runs the tracker in the editor (an open tab, else
+headless Chrome / Edge) and saves the result:
+
+- `{clip, point:{x:0.62, y:0.4}, at:12}` follows a spot from `at` to the
+  clip's end. `region:{x, y, w, h}` gives the area instead, `size` sets a
+  point's region (default 0.08 of the width), `direction:"backward"|"both"`
+  and `to` (timeline seconds) set the range, and `scale` / `rotation` follow
+  those too.
+- `apply:{mask:"Face"}` bakes the result into that mask's keys. Leave out
+  `point` / `region` and the mask's own outline is what gets followed.
+- `apply:{clip:"c_sticker", scale?, rotation?, at?}` pins another clip to
+  the track.
+- `name` names the track. Passing an existing name with `apply` and no
+  region re-applies the stored track without tracking again.
+- The reply gives the range, the match quality (min / mean; ≥ 0.8 is solid),
+  where it was lost, and what was keyed.
+- `{op:"removeTrack", id, track}` deletes a stored track; what followed it
+  keeps its keys. The compact project view lists tracks as
+  `[tracks: "Logo" point 0.00–4.20 s (127 samples)]`, never their samples.
+
+Recipes: **a title that follows a car** — track a point on the car, attach
+the title; **blur a face or a plate** — an ellipse mask on a blurred copy of
+the shot on the track above, then `apply:{mask:"Face"}`; **a screen replacement** —
+track the screen with Scale and Rotate on and attach the new picture, cropped
+to fit; **a highlight that stays on a UI element** in a screen recording —
+track the button, attach a rect svg.
+
+### Shapes, nulls and parenting
+
+Motion graphics are built from three pieces: **shape layers** (vector shapes
+drawn by the editor, crisp at any size), **null objects** (invisible layers that
+carry a transform) and **parenting** (a clip moves, turns and scales with
+another clip). Every visual clip also has an **anchor point**. All of it runs
+the same in preview and export.
+
+**Shape layers.** A clip with `kind:"shape"` (no `mediaId`) draws
+`props.shapes`, a list drawn bottom-up (first = bottom):
+
+```jsonc
+{ "id": "c_lt", "kind": "shape", "mediaId": null, "track": "V2", "start": 0, "duration": 5,
+  "props": { "x": -300, "y": 220, "shapes": [
+    { "type": "rect", "name": "Bar", "w": 520, "h": 90, "radius": 12, "fill": "#ffd166",
+      "keys": [ { "t": 0, "w": 0 }, { "t": 0.6, "w": 520, "ease": "ease-out" } ] },
+    { "type": "line", "y": 60, "points": [[-260, 0], [260, 0]], "stroke": "#ffffff", "strokeWidth": 6,
+      "keys": [ { "t": 0.3, "trimEnd": 0 }, { "t": 1.1, "trimEnd": 100 } ] },
+    { "type": "group", "x": 300, "items": [
+      { "type": "star", "sides": 5, "inner": 0.45, "w": 80, "h": 80, "fill": "#ff7ac8" },
+      { "type": "ellipse", "w": 120, "h": 120, "fill": "none", "stroke": "#ff7ac8", "strokeWidth": 4 } ],
+      "keys": [ { "t": 0, "rotation": 0 }, { "t": 5, "rotation": 360, "ease": "linear" } ] }
+  ] } }
+```
+
+| key | default | does |
+|---|---|---|
+| `type` | `rect` | `rect` · `ellipse` · `polygon` · `star` · `line` · `path` · `group` |
+| `x` · `y` | 0 | position in layer px, from the layer's origin (the clip's `x`/`y`, y down) |
+| `rotation` · `scale` · `opacity` | 0 · 1 · 1 | about the item's own `x, y` |
+| `w` · `h` | 200 | size, px (rect, ellipse, polygon, star) |
+| `radius` | 0 | rect corner radius, px |
+| `sides` · `inner` | 6 / 5 · 0.5 | polygon / star point count (3–64); a star's inner radius as a fraction of the outer |
+| `points` | — | line: exactly 2 · path: 2–128 points `[x, y]` or `[x, y, inX, inY, outX, outY]` (curve handles relative to the point), px around the item's `x, y` |
+| `closed` | true | path only; `false` leaves it open (lines are always open) |
+| `fill` · `stroke` | `#ffffff` · `none` | `"#rrggbb"`, `"#rrggbbaa"` or `"none"`; lines and open paths default to a white stroke and no fill |
+| `strokeWidth` | 6 (8 open) | px; set with `stroke` |
+| `lineCap` · `lineJoin` | `round` · `round` | `butt` · `round` · `square` / `miter` · `round` · `bevel` |
+| `dash` | — | `[on, off, …]` px, e.g. `[24, 12]` |
+| `trimStart` · `trimEnd` | 0 · 100 | the part of the outline drawn, % — key `trimEnd` 0→100 to draw a path on |
+| `trimOffset` | 0 | % of the outline the drawn part is shifted round by (key it to make a dash run round a loop) |
+| `items` | — | group only: its items. A group moves, turns, scales, fades and trims them together (groups nest 4 deep) |
+| `name` · `on` | — | a label (agents address items by it); `on:false` hides it |
+| `keys` | — | `[{t, ease?, …}]`, `t` in seconds from the clip's start. Keyable: `x y rotation scale opacity w h radius inner strokeWidth trimStart trimEnd trimOffset fill stroke points`. Each value eases between the keys that set it (`ease` on the arriving key); colours blend; `points` keys morph the path and need its point count |
+
+At most 64 items per layer (group children included). The layer itself is a
+normal visual clip: its `x`, `y`, `scale`, `rotation`, `opacity`, `blend`,
+masks, transitions and keyframes all work, as do `blur` and `shake`. Its own
+`trimStart` / `trimEnd` / `trimOffset` (clip props, keyframable) trim every
+path in it at once. A trimmed shape fills the part that is drawn.
+
+**Null objects.** `kind:"null"` (no `mediaId`) is a clip that never renders.
+Give it `x`, `y`, `rotation`, `scale` (and keyframes), and parent clips to it to
+move them as one. The monitor shows it as a red square while it is on screen.
+
+**Parenting.** `"parent": "<clip id>"` (top-level, next to `track`) makes a
+clip move, turn and scale with that clip. Its own `x`/`y` are then measured
+in the parent's space: from the parent's centre, turned and scaled with it.
+Parents chain (a parent can have a parent), and loops are refused. Only the
+transform follows: the parent's opacity, transitions, shake and effects do
+not, and the parent's keyframes are read even outside its time range (held
+at its first or last value). Splitting a parent leaves the children on the
+left half.
+
+**Anchor point.** `anchorX` / `anchorY` (px from the picture's centre, for any
+visual clip) pick the point that `x`/`y` place and that `rotation` and `scale`
+turn around: `anchorY: 200` on a 400 px tall shape spins it about its bottom
+edge. Moving the anchor without moving the picture means changing `x`/`y`
+with it (the editor's anchor tool does that).
+
+In the editor: the bin's **Shapes** tab adds a rectangle, ellipse, polygon,
+star, line or pen-path layer, or a null object, at the playhead. The **Shape layer** section lists the
+items; pick one to edit it — the sliders, Fill / Stroke (colour or **None**),
+ends and joins, trim, **Group** / **Ungroup** / **Out**, ↑ ↓, **Copy**,
+**Delete** — and on the monitor drag it to move, the knob to turn it (Shift:
+15°) and the corners to resize it. On a line or path, drag points and their
+handles (Alt breaks the pair, Alt-drag pulls new handles); on a path,
+Ctrl-click the outline to add a point and double-click one to remove it.
+**Pen** draws a new path: click points (drag to curve), click the first point
+to close it or press Enter to keep it open. Each value has its own **◆**: key
+it at the playhead, and from then on changing it keys it. Every visual clip's
+Transform section has **Anchor** (**✥ Move**: drag on the monitor to move the
+anchor point while the picture stays put, Shift snaps to the centre;
+**Centre** puts it back) and **Parent**. Right-click clips → **Parent to a
+new null** groups them under a fresh null at their centre.
+
+**Agents:**
+
+- Add a layer with `addClip {kind:"shape", track, start, duration, props:{shapes:[…]}}`,
+  a null with `addClip {kind:"null", track, start, duration, props:{x, y}}`.
+- `{op:"setShape", id, set:{type:"rect", w:400, h:80, fill:"#ffd166"}}` adds an
+  item (no `shape`, an index one past the end or a new name adds one; a new
+  item needs `type`). `{op:"setShape", id, shape:"Bar", set:{fill:"#22d3ee"}}`
+  edits one — by index (0 = first), name, or a path into groups like `"2.0"`
+  (item 0 of group 2; `"2.3"` with 3 items adds one there) — merging key by
+  key (`null` resets a key; a new `type` keeps the position and paint).
+  `replace:true` starts it over. `keys` in `set` replaces its keys.
+  `{op:"removeShape", id, shape}` deletes one. `ids:[…]` edits several clips.
+- `{op:"setParent", id | ids, parent:"c_null"}` parents clips and keeps them
+  where they are on screen (at time `at`, default each clip's start; keyed
+  channels are left as they are). `keep:false` keeps the numbers instead.
+  `parent:null` unparents. Removing a parent clip unparents its children
+  where they stand.
+- `props.shapes` and `parent` written through `addClip` / `updateClip` are
+  validated the same way; bad input refuses the whole patch. The compact
+  view lists a layer as `[3 shapes: rect #ffd166 2 keys, line stroke #ffffff/6, group(star(5) #ff7ac8)]`
+  and a child as `parent:c_null`.
+
+Recipes: **draw-on logo** — the logo as `path` items with a stroke and no fill,
+`trimEnd` keyed 0→100 (stagger the items' keys), then `fill` keyed from
+`"#ffffff00"` to `"#ffffff"`; **lower third** — a `rect` bar whose `w` keys
+from 0, a `line` drawn on under it, a title on the track above parented to the
+shape layer so they slide out together; **loading ring** — an ellipse with a
+stroke, `trimEnd: 25`, `trimOffset` keyed 0→100 with `ease:"linear"`;
+**orbit** — a null at the centre with `rotation` keyed 0→360, a shape parented
+to it with `x: 300`; **swing from the top** — `anchorY` at the top edge
+(minus half the height) and `rotation` keyed −10↔10; **burst** — a group of
+lines at different `rotation`s with `scale` keyed 0→1 and `opacity` 1→0.
+
+### Motion paths, motion blur and text on a path
+
+**Motion paths.** When `keyframes.x` and `keyframes.y` both have a key at the
+same time, that is a **position key**. Give position keys curve handles and
+the clip travels along a bezier path between them instead of a straight line.
+The handles are `pin` (arriving) and `pout` (leaving) on the x and y keys,
+in px relative to the key's position, in the clip's `x`/`y` space:
+
+```jsonc
+"keyframes": {
+  "x": [ { "t": 0, "v": -450, "pout": 250 }, { "t": 2, "v": 0, "pin": -250, "pout": 250 }, { "t": 4, "v": 450, "pin": -250 } ],
+  "y": [ { "t": 0, "v": 150, "pout": -300 }, { "t": 2, "v": 0 },                        { "t": 4, "v": 150, "pin": -300 } ]
+}
+```
+
+Between two position keys the clip moves along the curve at the pace of the
+arriving key's `ease`, measured along the curve, so a `linear` key gives an
+even speed around a bend. A segment with an extra x or y key inside it, or
+with no handles, runs the channels as before. `autoOrient: true` turns the
+clip to face its direction of travel, and its `rotation` adds on top. A
+parent on a curved path carries its children along it.
+
+**Motion blur.** `motionBlur` is a shutter angle: the clip is drawn at
+`motionBlurSamples` moments across `motionBlur / 360` of a frame, centred on
+the frame, and the samples are averaged. 180 is the film look; 360 smears a
+whole frame. It blurs whatever changes: position, scale, rotation, a parent's
+motion, keyed shapes and trims. A clip that does not move draws once. During
+playback the preview uses as many samples as fit in the frame time (all of them
+on a fast machine); a paused frame and export always use them all. It works on
+video, image, svg, text and shape clips.
+
+**Text on a path.** `textPath` on a text clip is one shape item (`path`, `line`,
+`ellipse`, `rect`, `polygon` or `star`, with the same geometry keys and
+`keys` as in "Shapes, nulls and parenting", but no paint or trim) whose
+outline is the baseline, in the title's own px. The first line of text runs
+along it, each letter turned with the path; each further line (`\n`) runs on a
+parallel curve one line-height below, so its letters space by that curve's own
+length. `pathOffset` (% of the path's length, keyframable) is where the text
+sits, and `pathAlign` says which end of each line sits there. On a closed path
+the text wraps around; keying `pathOffset` 0 → 100 sends it once around a
+circle. Every text animation plays along the path. Font, size, colour,
+gradient, stroke, glow, shadow, `lineHeight` and `letterSpacing` all apply;
+text boxes and `align` do not (`pathAlign` takes their place).
+
+```jsonc
+{ "kind": "text", "props": { "text": "AROUND AND AROUND • ", "font": "Anton", "fontSize": 40, "letterSpacing": 4,
+  "textPath": { "type": "ellipse", "w": 300, "h": 300 }, "pathAlign": "start" },
+  "keyframes": { "pathOffset": [ { "t": 0, "v": 0 }, { "t": 6, "v": 100, "ease": "linear" } ] } }
+```
+
+In the editor: when the selected clip has two or more position keys, its path
+shows on the monitor: the curve, a dot per frame (their spacing is the speed),
+a square per key and the keys' handles. Drag a key to move it, drag a handle to
+bend the path (Alt breaks the pair), Alt-drag a key to pull new handles, and
+double-click a key to make it a corner again. Moving the clip on the monitor
+or typing X / Y keys both channels together. The Inspector's **Motion**
+section has **Smooth** (handles through every position key), **Straight**,
+**Auto-orient**, **Motion blur** and **Blur samples**. A title's **Text path**
+section sets it on a **Line**, **Arc**, **Circle**, **Wave** or a **Pen** path
+(click points, drag to curve, Enter to finish, click the first point to close
+it). **Edit path** shows the path's points on the monitor, and **Offset** and
+**Align** place the text along it.
+
+**Agents:**
+
+- Write `pin` / `pout` on x / y keys directly, or
+  `{op:"setMotionPath", id | ids, path:"smooth" | "straight", autoOrient?: true}`.
+  `"smooth"` needs the position keys first (x and y keyed together at two or more times).
+- Motion blur: `updateClip` with `props:{motionBlur:180, motionBlurSamples:12}`.
+- `{op:"setTextPath", id | ids, path:"line" | "arc" | "circle" | "wave" | {type:"path", points:[…], closed:false, …} | null, offset?, align?}`
+  sets, replaces or removes (`null`) a title's path; animate `pathOffset` with
+  keyframes.
+- These are validated on `addClip` / `updateClip` too. The compact view shows
+  `path:curved` after a clip's keyframes, and a title's `"textPath":"ellipse 300×300"`.
+
+Recipes: **fly-in on a curve** — two position keys, `setMotionPath` smooth,
+`autoOrient:true`, `motionBlur:180`; **orbiting label** — circle `textPath`,
+`pathOffset` keyed 0 → 100 linear; **stamp along a road** — an open `path`
+textPath that follows the shape in the footage, `pathAlign:"center"`,
+`textAnim:"letter-pop"`; **whip without the transition** — a fast `x` move over
+4–6 frames with `motionBlur:360`.
 
 ### Semantics
 

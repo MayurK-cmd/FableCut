@@ -19,10 +19,12 @@
    `forDoc(doc, opts)` builds the env from the document itself (its tracks,
    lockedTracks and untargetedTracks) for headless callers. */
 (function (root, factory) {
-  const api = factory();
-  if (typeof module === "object" && module.exports) module.exports = api;
+  const node = typeof module === "object" && module.exports;
+  const api = factory(node ? require("./mask") : root.FableCutMask, node ? require("./tracker") : root.FableCutTracker,
+    node ? require("./motion") : root.FableCutMotion);
+  if (node) module.exports = api;
   else root.FableCutEdit = api;
-})(typeof self !== "undefined" ? self : this, function () {
+})(typeof self !== "undefined" ? self : this, function (MaskLib, TrackLib, MotionLib) {
   "use strict";
 
   const MIN_DUR = 0.05;
@@ -92,6 +94,42 @@
     }
     return Object.keys(out).length ? out : undefined;
   }
+  /** A clip's head moved by `offset` s: its mask keys, shape keys and track samples follow, like shiftKF does for keyframes. */
+  function shiftMasks(c, offset) {
+    if (!offset || !c.props) return;
+    const ms = c.props.masks, ts = c.props.tracks, ss = c.props.shapes;
+    if (MotionLib && Array.isArray(ss)) c.props = { ...c.props, shapes: MotionLib.shiftKeys(ss, offset) };
+    if (MaskLib && Array.isArray(ms)) {
+      const next = MaskLib.shiftKeys(ms, offset);
+      if (next !== ms) c.props = { ...c.props, masks: next };
+    }
+    if (TrackLib && Array.isArray(ts)) {
+      const next = TrackLib.shiftTracks(ts, offset);
+      c.props = { ...c.props };
+      if (next.length) c.props.tracks = next; else delete c.props.tracks;
+    }
+  }
+  /** Clips are leaving the document: their children stay where they are. Each child is
+   *  re-parented to the nearest ancestor that stays (or to nothing), with its static
+   *  position / rotation / scale rewritten to hold its place at its own start. Keyed
+   *  channels keep their keys. Call it before the clips are removed. */
+  function detachChildren(project, goneIds) {
+    if (!MotionLib || !goneIds || !goneIds.size) return 0;
+    const byId = (id) => project.clips.find((x) => x.id === id) || null;
+    let n = 0;
+    for (const k of project.clips) {
+      if (!k.parent || goneIds.has(k.id) || !goneIds.has(k.parent)) continue;
+      let up = byId(k.parent), guard = 0;
+      while (up && goneIds.has(up.id) && guard++ < 64) up = up.parent ? byId(up.parent) : null;
+      const next = up && !goneIds.has(up.id) ? up.id : null;
+      const v = MotionLib.reparentValues(k, next, byId, k.start || 0);
+      k.props = { ...(k.props || {}) };
+      for (const [p, val] of Object.entries(v)) if (!(k.keyframes && Array.isArray(k.keyframes[p]) && k.keyframes[p].length)) k.props[p] = val;
+      if (next) k.parent = next; else delete k.parent;
+      n++;
+    }
+    return n;
+  }
   /** Default stereo pan for an isolated linked stem (L −1, R +1, else center). */
   function defaultPanForChannel(ch) {
     if (ch === 0) return -1;
@@ -108,6 +146,7 @@
     const getClip = (id) => P().clips.find((c) => c.id === id) || null;
     const dropClips = (pred) => {
       const project = P();
+      detachChildren(project, new Set(project.clips.filter(pred).map((x) => x.id)));
       const keep = [];
       for (const x of project.clips) { if (pred(x)) removed(x); else keep.push(x); }
       project.clips = keep;
@@ -190,6 +229,7 @@
         linkedId: undefined,
         linkGroup: undefined,
       };
+      shiftMasks(right, cut);
       c.duration = cut;
       c.keyframes = shiftKF(c.keyframes, 0, cut);
       c.transitionOut = undefined;
@@ -274,6 +314,7 @@
           else c.in = 0;
           c.duration -= dIn;
           c.keyframes = shiftKF(c.keyframes, dIn, c.duration);
+          shiftMasks(c, dIn);
           c.transitionIn = undefined;
           changed++;
         }
@@ -559,6 +600,7 @@
               c.start = +t1.toFixed(4);
               c.transitionIn = undefined;
               c.keyframes = shiftKF(c.keyframes, t1 - oldStart, c.duration);
+              shiftMasks(c, t1 - oldStart);
             } else {
               // Stubs on both sides → effectively inside the window.
               drop(c);
@@ -595,6 +637,7 @@
           c.start = +t1.toFixed(4);
           c.transitionIn = undefined;
           c.keyframes = shiftKF(c.keyframes, t1 - oldStart, c.duration);
+          shiftMasks(c, t1 - oldStart);
         }
       }
     }
@@ -710,6 +753,7 @@
         if (isMediaClip(x)) x.in = +(x.in + d * clipSpeed(x)).toFixed(4);
         x.duration = +(x.duration - d).toFixed(4);
         x.keyframes = shiftKF(x.keyframes, d, x.duration);
+        shiftMasks(x, d);
         clampTransitions(x);
       }
     }
@@ -885,6 +929,7 @@
           x.in = +Math.max(0, x.in - e2 * sp).toFixed(4);
           x.duration = +(x.duration + e2).toFixed(4);
           x.keyframes = shiftKF(x.keyframes, -e2, x.duration);
+          shiftMasks(x, -e2);
         }
       }
       d = +Math.min(d, a.duration, b.duration).toFixed(3);
@@ -956,7 +1001,7 @@
 
   return {
     MIN_DUR, MIN_TRANS_DUR, CROSSFADE_DUR, GAP_EPS, TRIM_LOCKED, DEFAULT_TRACKS,
-    clipEnd, clipSpeed, kfChannel, hasSpeedRamp, mediaTimeAt, shiftKF, defaultPanForChannel,
+    clipEnd, clipSpeed, kfChannel, hasSpeedRamp, mediaTimeAt, shiftKF, shiftMasks, detachChildren, defaultPanForChannel,
     create, forDoc,
   };
 });
