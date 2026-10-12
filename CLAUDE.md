@@ -1364,10 +1364,15 @@ obvious cuts were missed, raise it if motion is being misread as cuts.
 - `GET  /api/frame?src=/media/x.mp4&t=3.2` — one JPEG still of a source clip, the
   "eyes" to go with `/api/analyze`'s ears (see "Look at the footage"). Optional
   `w` (pixel width, default 768) and `q` (ffmpeg `-q:v` 1–31, default 4).
-  `&frames=N[&cols=4][&from=][&to=][&w=320]` instead returns one N-up **contact
-  sheet** across the clip (N 2–60). `src` must name an existing file under
-  `/media/` or `/library/` (404 otherwise). Results are cached in
-  `analysis/frames/` keyed by source path, size and mtime; the response carries
+  `&frames=N[&cols=][&from=][&to=][&w=320]` instead returns one N-up **contact
+  sheet** across the clip (N 2–60; `cols` omitted → the squarest layout, so 6
+  frames give 3×2 rather than 4×2 with two black cells). `src` must name an
+  existing file under `/media/` or `/library/` (404 otherwise). `?path=` reads
+  any file on the machine but only with the `X-FableCut-Client: mcp` request
+  header, which only the local MCP client sends — without it the request is
+  refused (403) before the path is even resolved. Results are cached in
+  `analysis/frames/` keyed by source path, size and mtime; the cache is capped
+  (500 files / 128 MB, oldest first). The response carries
   `X-FableCut-Frame-Times` (comma-separated sample times, so a sheet's cells can
   be mapped back to timestamps) and `X-FableCut-Frame-Source`.
 - `POST /api/scopes/request` also takes `{"image":true}`, which makes the editor

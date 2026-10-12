@@ -13603,6 +13603,14 @@ async function runScopesJob(ticket, fail) {
       else if (!kcap || kcap.coverage == null) mask.error = "the clip is not on screen at that time (or its masks are all off)";
       else Object.assign(mask, { masks: Mask.describe(clipMasks(kClip)), coverage: kcap.coverage, frameCoverage: kcap.frameCoverage });
     }
+    /* fablecut_frame {time} with no src: hand back the same graded still as a
+       JPEG so the agent can see what it is measuring. toDataURL can throw on a
+       canvas tainted by a cross-origin src — the numbers still stand. */
+    let image = null;
+    if (ticket.image) {
+      try { image = cv.toDataURL("image/jpeg", 0.85); }
+      catch (err) { image = null; }
+    }
     const onScreen = visibleClipsAt(t), mattes = matteTracksAt(onScreen);
     const clips = onScreen.map((c) => {
       const tm = clipMatte(c);
@@ -13615,7 +13623,7 @@ async function runScopesJob(ticket, fail) {
         ...(c.props.blend && c.props.blend !== "normal" ? { blend: c.props.blend } : {}),
       };
     });
-    await reportExportJob(ticket.id, { status: "done", result: { time: +t.toFixed(3), frame: { w: Math.round(r.w), h: Math.round(r.h) }, stats, clips, matte, mask } }, true);
+    await reportExportJob(ticket.id, { status: "done", result: { time: +t.toFixed(3), frame: { w: Math.round(r.w), h: Math.round(r.h) }, stats, clips, matte, mask, image } }, true);
   } catch (err) {
     fail("could not measure the frame: " + (err && err.message || err));
   } finally {

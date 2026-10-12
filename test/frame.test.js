@@ -56,11 +56,13 @@ const boot = async (t) => {
   const { base, port } = await startServer(t, dir, NO_WATCH);
   return { dir, base, port };
 };
-const getFrame = async (base, query) => {
-  const res = await fetch(base + "/api/frame?" + query);
+const getFrame = async (base, query, headers) => {
+  const res = await fetch(base + "/api/frame?" + query, headers ? { headers } : undefined);
   const buf = Buffer.from(await res.arrayBuffer());
   return { res, buf };
 };
+/* The header the MCP client sends — and only it sends — for ?path= requests. */
+const MCP_HEADER = { "X-FableCut-Client": "mcp" };
 
 test("GET /api/frame refuses a src outside /media and /library", async (t) => {
   const { dir, base } = await boot(t);
@@ -300,7 +302,7 @@ test("looking at a file outside media/ never writes into media/", { skip: !hasFf
   const file = fixture(scratch, "elsewhere.mp4");
   assert.deepEqual(fs.readdirSync(path.join(dir, "media")), [], "media/ starts empty");
 
-  const res = await fetch(base + "/api/frame?path=" + encodeURIComponent(file) + "&t=1");
+  const res = await fetch(base + "/api/frame?path=" + encodeURIComponent(file) + "&t=1", { headers: MCP_HEADER });
   assert.equal(res.status, 200);
   await res.arrayBuffer();
 
@@ -312,7 +314,7 @@ test("looking at a file outside media/ never writes into media/", { skip: !hasFf
 test("GET /api/frame?path rejects a path that is not a file", async (t) => {
   const { dir, base } = await boot(t);
   for (const p of ["", path.join(dir, "media"), path.join(dir, "nope.mp4"), dir]) {
-    const res = await fetch(base + "/api/frame?path=" + encodeURIComponent(p) + "&t=0");
+    const res = await fetch(base + "/api/frame?path=" + encodeURIComponent(p) + "&t=0", { headers: MCP_HEADER });
     const body = await res.json().catch(() => ({}));
     assert.equal(res.status, 404, `path=${p} should be refused, got ${res.status}`);
     assert.match(body.error || "", /path must be an existing file|src must name/);
@@ -403,6 +405,63 @@ test("fablecut_frame {text:true} returns no image and says what it cannot tell y
   assert.match(desc, /VISION-CAPABLE/i, "the description must flag the vision requirement");
   assert.match(desc, /text:\s?true/i, "the description must point at the text mode");
   assert.match(desc, /analyze_reference/, "it must offer analyze_reference as the text-only route");
+});
+
+/* ?path= reads any file on the machine, so it is gated on a header no web page
+   can send: an <img> tag sends no custom headers, and a cross-site fetch()
+   that sets one needs a CORS preflight the server never grants. Without the
+   header the request is refused before the path is resolved, so the answer
+   leaks nothing — not even whether the file exists. */
+test("GET /api/frame?path= needs the MCP client header", async (t) => {
+  const { dir, base } = await boot(t);
+  const file = path.join(dir, "secret.txt");
+  fs.writeFileSync(file, "not media");
+
+  // No header: refused, even for a file that exists (no existence oracle).
+  for (const query of [
+    "path=" + encodeURIComponent(file) + "&t=0",
+    "path=" + encodeURIComponent(path.join(dir, "nope.mp4")) + "&t=0",
+    "path=" + encodeURIComponent(file) + "&t=0&text=1",
+  ]) {
+    const res = await fetch(base + "/api/frame?" + query);
+    assert.equal(res.status, 403, `${query} without the header should be refused`);
+    assert.match((await res.json().catch(() => ({}))).error || "", /X-FableCut-Client/);
+  }
+  // A wrong value is the same as none.
+  const wrong = await fetch(base + "/api/frame?path=" + encodeURIComponent(file) + "&t=0",
+    { headers: { "X-FableCut-Client": "browser" } });
+  assert.equal(wrong.status, 403);
+
+  // With the header the endpoint behaves: 404 for a missing file…
+  const missing = await fetch(base + "/api/frame?path=" + encodeURIComponent(path.join(dir, "nope.mp4")) + "&t=0",
+    { headers: MCP_HEADER });
+  assert.equal(missing.status, 404);
+
+  // …and src= mode never needed the header (those files are already served).
+  const srcMode = await fetch(base + "/api/frame?src=" + encodeURIComponent("/media/nope.mp4") + "&t=0");
+  assert.equal(srcMode.status, 404);
+  await srcMode.arrayBuffer();
+});
+
+test("omitting cols gives the squarest contact-sheet layout", { skip: !hasFfmpeg() && "ffmpeg not on PATH" }, async (t) => {
+  const { dir, base } = await boot(t);
+  fixture(dir, "clip.mp4");
+
+  // 6 frames with no cols → 3×2, every cell a real frame, none black padding.
+  const { res, buf } = await getFrame(base,
+    "src=" + encodeURIComponent("/media/clip.mp4") + "&frames=6&text=1");
+  assert.equal(res.status, 200);
+  const body = JSON.parse(buf.toString("utf8"));
+  assert.equal(body.cols, 3, `6 frames should lay out 3×2, got ${body.cols}×${body.rows}`);
+  assert.equal(body.rows, 2);
+  assert.equal(body.stats.cells.length, 6);
+  assert.ok(body.stats.cells.every((c) => !c.padded), "a full 3×2 grid must have no padding cells");
+  assert.deepEqual(body.stats.cells.map((c) => c.index), [0, 1, 2, 3, 4, 5]);
+
+  // An explicit cols still wins.
+  const explicit = await getFrame(base,
+    "src=" + encodeURIComponent("/media/clip.mp4") + "&frames=6&cols=2&text=1");
+  assert.equal(JSON.parse(explicit.buf.toString("utf8")).cols, 2);
 });
 
 test("GET /api/frame is only reachable from this machine", async (t) => {

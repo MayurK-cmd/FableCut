@@ -33,6 +33,7 @@ const {
   dryRunProfile,
 } = require("./encode-profiles");
 const { downloadImportUrl, maybeFaststart } = require("./import-url");
+const { pruneCache } = require("./frame-cache");
 const { createExportJobs } = require("./export-jobs");
 const { denoiseFile, AMOUNT_IDS: DENOISE_AMOUNTS } = require("./denoise");
 
@@ -736,26 +737,43 @@ const server = http.createServer(async (req, res) => {
      moment instead of guessing from an energy number. JPEG in, JPEG out.
 
        GET /api/frame?src=/media/x.mp4&t=3.2[&w=768][&q=4]
-       GET /api/frame?src=/media/x.mp4&frames=12[&cols=4][&from=0][&to=30][&w=320]
+       GET /api/frame?src=/media/x.mp4&frames=12[&cols=][&from=0][&to=30][&w=320]
+     (cols omitted → the squarest layout: 6 frames give 3×2, 12 give 4×3)
        GET /api/frame?path=C:\clips\x.mp4&t=3.2
 
      `src` is a served /media/ or /library/ path. `path` is any readable path on
      this machine — it does NOT copy the file into media/, because looking at a
-     clip must not change the user's project folder. `path` is reached only from
-     this localhost API (the MCP server and the user's own fetch), which can
-     already read those files; resolveSrc() remains the guard for anything that
-     turns a request string into a path inside a served root.
+     clip must not change the user's project folder. `path` is answered only
+     with the `X-FableCut-Client: mcp` request header, which only the local MCP
+     client sends: without it a web page could otherwise probe which files
+     exist (`onload` vs `onerror`), make ffmpeg decode them, and fill the cache
+     below with junk. resolveSrc() remains the guard for anything that turns a
+     request string into a path inside a served root.
 
      &text=1 returns JSON statistics instead of the image, for agents (or
      models) that cannot see one. Needs ffmpeg on PATH.
 
      Results are cached under analysis/frames/ by a hash of every argument, so
      polling the same timestamp costs nothing and the mtime/size of the cached
-     file answers "did the source change underneath this?". */
+     file answers "did the source change underneath this?". The cache is capped
+     (500 files / 128 MB, oldest mtime first — see frame-cache.js), so no
+     combination of arguments can fill the disk. */
   if (p === "/api/frame" && req.method === "GET") {
-    /* The path is resolved first: whether a file is readable never depends on
-       whether ffmpeg happens to be installed. */
     const pathArg = url.searchParams.get("path");
+    /* `path=` reads any file on this machine, so it is only answered for the
+       local MCP client, which proves itself with a custom header. An <img> or
+       <form> on a web page cannot set one, and a cross-site fetch() that sets
+       one needs a CORS preflight this server never grants — so a page in the
+       user's browser can neither render a frame nor probe which files exist
+       (a missing header is refused before the path is even resolved, so the
+       answer leaks nothing). `src=` needs no header: those files are already
+       served over HTTP at /media/ and /library/. */
+    if (pathArg && req.headers["x-fablecut-client"] !== "mcp") {
+      sendJSON(res, 403, { error: "path= needs the X-FableCut-Client: mcp request header — only the local MCP client may read files outside media/ and library/" });
+      return;
+    }
+    /* The path is resolved next: whether a file is readable never depends on
+       whether ffmpeg happens to be installed. */
     const src = url.searchParams.get("src") || "";
     const file = pathArg ? resolvePathArg(pathArg) : resolveSrc(src);
     if (!file) {
@@ -776,7 +794,7 @@ const server = http.createServer(async (req, res) => {
       fs.mkdirSync(FRAMES_DIR, { recursive: true });
       const isSheet = url.searchParams.get("frames") != null;
       const opts = isSheet
-        ? { frames: num("frames"), cols: num("cols", 4), from: num("from", 0), to: num("to", undefined), width: num("w", 320), quality: url.searchParams.get("q") }
+        ? { frames: num("frames"), cols: num("cols", null), from: num("from", 0), to: num("to", undefined), width: num("w", 320), quality: url.searchParams.get("q") }
         : { t: num("t", 0), width: num("w", 768), quality: url.searchParams.get("q") };
       // Key on the source's identity + size + mtime so an overwritten file
       // never serves a stale grab.
@@ -801,6 +819,12 @@ const server = http.createServer(async (req, res) => {
         fs.writeFileSync(tmp, r.jpeg);
         fs.renameSync(tmp, cache); // atomic: a half-written jpeg never gets cached
         fs.writeFileSync(cache.replace(/\.jpg$/, ".json"), JSON.stringify(meta));
+        /* Bound the cache: every distinct argument set mints a file, so cap
+           the directory oldest-first rather than letting it grow forever. */
+        try { pruneCache(FRAMES_DIR); } catch { /* a prune failure is not the request's problem */ }
+      } else {
+        // Refresh LRU order so hot entries survive the prune above.
+        try { fs.utimesSync(cache, new Date(), new Date()); } catch {}
       }
       /* text=1 answers JSON measurements instead of the picture, for agents and
          models that cannot see one. Same decode, no pixels over the wire. */

@@ -67,6 +67,10 @@ about 150 ms. A human and an agent can work the same timeline at once.
   (browser encodes H.264, server muxes), and a realtime MediaRecorder fallback.
   Agents can start an export themselves (`fablecut_export`), in the open editor
   or a headless browser.
+- Look at the footage: agents can fetch a JPEG of any frame (`GET /api/frame`),
+  an N-up contact sheet across a clip, or the composed timeline as the
+  compositor renders it — or text-only measurements of the same for models
+  without vision (`fablecut_frame`, `text:true`).
 - Also installable as a Claude Code plugin, which registers the MCP server and
   adds `edit-video`, `remake-reel` and `motion-graphics` skills.
 

@@ -74,10 +74,11 @@ function httpOk(url) {
     req.setTimeout(1200, () => { req.destroy(); resolve(false); });
   });
 }
-/** JSON request to the editor server → {status, body}. */
-function apiJSON(method, urlPath, payload) {
+/** JSON request to the editor server → {status, body}. Extra headers are for
+ *  endpoints that gate on them — /api/frame?path= needs X-FableCut-Client. */
+function apiJSON(method, urlPath, payload, headers) {
   return new Promise((resolve, reject) => {
-    const req = http.request(API + urlPath, { method, headers: { "Content-Type": "application/json" } }, (r) => {
+    const req = http.request(API + urlPath, { method, headers: { "Content-Type": "application/json", ...headers } }, (r) => {
       let data = "";
       r.setEncoding("utf8");
       r.on("data", (d) => { data += d; });
@@ -187,7 +188,7 @@ const TOOLS = [
         t: { type: "number", description: "Seconds into the source clip (default 0). Ignored when `frames` is passed." },
         time: { type: "number", description: "TIMELINE seconds to render, when `path` is omitted (default: the editor's playhead)" },
         frames: { type: "number", description: "Contact-sheet mode: number of moments to sample across the clip, 2–60 (default 12)" },
-        cols: { type: "number", description: "Contact-sheet columns (default 4)" },
+        cols: { type: "number", description: "Contact-sheet columns (omit for the squarest layout — 6 frames give 3×2, 12 give 4×3)" },
         from: { type: "number", description: "Contact sheet: start of the range to survey (default 0)" },
         to: { type: "number", description: "Contact sheet: end of the range (default: the clip's duration)" },
         width: { type: "number", description: "Pixel width of the returned image (default 768 for one frame, 320 per cell for a sheet)" },
@@ -683,10 +684,13 @@ function imageBlockFromDataUrl(url) {
   return m ? { type: "image", data: m[2], mimeType: m[1] } : null;
 }
 
-/** Raw GET to the editor server → {status, headers, buffer}. */
+/** Raw GET to the editor server → {status, headers, buffer}.
+ *  Sends the MCP client header: /api/frame?path= only answers requests that
+ *  carry it, so a web page in the user's browser can neither render frames of
+ *  arbitrary files nor probe which ones exist. */
 function apiBytes(urlPath) {
   return new Promise((resolve, reject) => {
-    const req = http.request(API + urlPath, { method: "GET" }, (r) => {
+    const req = http.request(API + urlPath, { method: "GET", headers: { "X-FableCut-Client": "mcp" } }, (r) => {
       const chunks = [];
       r.on("data", (c) => chunks.push(c));
       r.on("end", () => resolve({ status: r.statusCode, headers: r.headers, body: Buffer.concat(chunks) }));
@@ -753,7 +757,8 @@ async function frameTool(args) {
   const q = new URLSearchParams(served ? { src: raw } : { path: path.resolve(raw) });
   if (args.frames != null) {
     q.set("frames", String(Math.round(Number(args.frames))));
-    q.set("cols", String(Math.round(Number(args.cols) || 4)));
+    // No cols → the server picks the squarest layout (6 frames give 3×2).
+    if (args.cols != null) q.set("cols", String(Math.round(Number(args.cols))));
     if (args.from != null) q.set("from", String(args.from));
     if (args.to != null) q.set("to", String(args.to));
     q.set("w", String(args.width || 320));
@@ -767,7 +772,7 @@ async function frameTool(args) {
      one request — not the picture and then a second call for the numbers. */
   if (args.text) {
     q.set("text", "1");
-    const j = await apiJSON("GET", "/api/frame?" + q.toString());
+    const j = await apiJSON("GET", "/api/frame?" + q.toString(), undefined, { "X-FableCut-Client": "mcp" });
     if (j.status !== 200) throw new Error(j.body?.error || `frame description failed (${j.status})`);
     const st = j.body.stats, b = j.body;
     const where = b.frames > 1

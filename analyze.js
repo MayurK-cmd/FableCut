@@ -283,14 +283,17 @@ async function frame(file, { t = 0, width = 768, quality, stats = true } = {}) {
 
 /** N frames spread across the whole clip in one grid image (left→right, top→bottom).
     Returns {jpeg, times[], cols, rows, …}. Cell i is the frame at times[i]. */
-async function frameGrid(file, { frames = 12, cols = 4, from = 0, to, width = 320, quality, stats = true } = {}) {
+async function frameGrid(file, { frames = 12, cols = null, from = 0, to, width = 320, quality, stats = true } = {}) {
   if (!fs.existsSync(file)) throw new Error("File not found: " + file);
   const info = await probe(file);
   if (!info.hasVideo) throw new Error("the file has no video track — there is no frame to look at");
   const n = Math.round(Number(frames));
   if (!Number.isFinite(n) || n < 2 || n > MAX_SHEET_FRAMES)
     throw new Error(`frames must be 2–${MAX_SHEET_FRAMES}`);
-  const c = Math.round(Number(cols));
+  /* No cols given → the squarest layout: 6 frames give 3×2, not 4×2 with two
+     black cells. ceil(√n) always fits MAX_SHEET_COLS for n ≤ 60, and an
+     explicit cols still wins. */
+  const c = cols == null ? Math.ceil(Math.sqrt(n)) : Math.round(Number(cols));
   if (!Number.isFinite(c) || c < 1 || c > MAX_SHEET_COLS) throw new Error(`cols must be 1–${MAX_SHEET_COLS}`);
   const rows = Math.ceil(n / c);
   const start = Number.isFinite(Number(from)) ? Math.max(0, Number(from)) : 0;
@@ -425,7 +428,7 @@ if (require.main === module) {
   const write = (buf) => process.stdout.write(buf);
   if (args.some((a) => a.startsWith("--frame=") || a.startsWith("--sheet=")))
     (arg("sheet")
-      ? frameGrid(p, { frames: +arg("sheet"), cols: +(arg("cols") || 4), from: arg("from"), to: arg("to"), width: +(arg("width") || 320), quality: arg("quality") })
+      ? frameGrid(p, { frames: +arg("sheet"), cols: arg("cols") == null ? null : +arg("cols"), from: arg("from"), to: arg("to"), width: +(arg("width") || 320), quality: arg("quality") })
       : frame(p, { t: +arg("frame"), width: +(arg("width") || 768), quality: arg("quality") })
     ).then((r) => write(r.jpeg))
       .catch((e) => { console.error("frame extraction failed: " + e.message); process.exit(1); });
