@@ -91,6 +91,11 @@ function apiJSON(method, urlPath, payload) {
 }
 async function ensureUIServer() {
   if (await httpOk(API + "/api/project")) return true;
+  /* Tests (and nothing else) may set FABLECUT_NO_AUTOSTART=1: the auto-start
+     below spawns a detached server.js the test harness cannot stop — it
+     inherits the test's port and data dir and keeps running after the test.
+     With the flag set, report the missing server instead of starting one. */
+  if (process.env.FABLECUT_NO_AUTOSTART === "1") return false;
   spawn(process.execPath, [path.join(ROOT, "server.js")],
     { cwd: ROOT, detached: true, stdio: "ignore" }).unref();
   for (let i = 0; i < 12; i++) {

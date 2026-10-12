@@ -92,7 +92,11 @@ test("every tools/call answer is well-formed content blocks", async (t) => {
   // with text only. Whatever a tool returns must reach the client as valid
   // content blocks, and at least one text block must lead so an agent can read
   // what it is looking at without decoding an image.
-  const mcp = startMcp(t, makeDataDir(t));
+  // FABLECUT_NO_AUTOSTART: the server-backed tools (export, scopes, frame)
+  // must fail fast here instead of spawning a detached server.js no test can
+  // stop. Their error answers are still text-led content blocks, which is what
+  // this test checks.
+  const mcp = startMcp(t, makeDataDir(t), { FABLECUT_NO_AUTOSTART: "1" });
   await mcp.request("initialize", { protocolVersion: LATEST });
   const { result } = await mcp.request("tools/list");
   for (const tool of result.tools) {

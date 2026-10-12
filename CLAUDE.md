@@ -140,6 +140,9 @@ reports the real paths.
 Tests (and nothing else) may set **`FABLECUT_NO_FS_WATCH=1`** to skip `fs.watch`.
 On Windows, libuv can abort the process when a file is created under a temp
 data dir. Production leaves watching on so the UI live-reloads.
+Tests may also set **`FABLECUT_NO_AUTOSTART=1`** so `ensureUIServer()` reports
+a missing editor server instead of spawning one — the auto-start is detached,
+so a test that triggers it would leave a `server.js` running after it finishes.
 
 ## Run
 
