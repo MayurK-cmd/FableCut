@@ -63,14 +63,17 @@ test("percentiles and range are reported, and a flat frame has no spread", () =>
   const flat = S.describe(solid(24, 24, 100, 100, 100), 24, 24).luma;
   assert.equal(flat.min, flat.max, "a flat frame's min and max must match");
   assert.equal(flat.p1, flat.p99);
+  // Every luma field is 0–1 like scopeStats — never a mix of scales again.
+  for (const v of [flat.min, flat.p1, flat.median, flat.mean, flat.p99, flat.max])
+    assert.ok(v >= 0 && v <= 1, `luma fields are 0–1, got ${v}`);
 
   // Half black, half white: median splits, and p1/p99 hug the ends.
   const hard = S.describe(split(64, 64, [0, 0, 0], [255, 255, 255]), 64, 64).luma;
   assert.equal(hard.min, 0);
-  assert.equal(hard.max, 255);
-  assert.ok(hard.median >= 0 && hard.median <= 255);
-  assert.ok(hard.p1 <= 5, `p1 should be near black, got ${hard.p1}`);
-  assert.ok(hard.p99 >= 250, `p99 should be near white, got ${hard.p99}`);
+  assert.equal(hard.max, 1);
+  assert.ok(hard.median === 0 || hard.median === 1, `an even split lands on one side, got ${hard.median}`);
+  assert.equal(hard.p1, 0, `p1 should be black, got ${hard.p1}`);
+  assert.equal(hard.p99, 1, `p99 should be white, got ${hard.p99}`);
 });
 
 test("texture separates a flat frame from a detailed one, and never NaNs", () => {

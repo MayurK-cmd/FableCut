@@ -338,6 +338,10 @@ test("GET /api/frame?text=1 describes a frame instead of returning pixels", { sk
   const st = body.stats;
   assert.ok(st, "text mode must carry measurements");
   assert.equal(typeof st.luma.mean, "number");
+  // The wire format is 0–1 on every luma field, like scopeStats — a mixed
+  // scale once read "mean 0.498, median 137" and looked almost black.
+  for (const k of ["min", "p1", "median", "mean", "p99", "max"])
+    assert.ok(st.luma[k] >= 0 && st.luma[k] <= 1, `luma.${k} must be 0–1, got ${st.luma[k]}`);
   assert.equal(typeof st.texture, "number");
   assert.ok(st.colours.length >= 1);
   // 2s into red→lime→blue is the blue third.

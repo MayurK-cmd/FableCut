@@ -20,7 +20,11 @@
 
 /* Rec. 709 luma weights — the same coefficients the browser uses, so a number
    here means the same thing as a number from fablecut_scopes. */
+/* Every luma field below is 0–1, rounded to 3 decimals — the same convention
+   as color.js scopeStats, so the two readings can sit side by side without a
+   conversion nobody remembers to do. */
 const WR = 0.2126, WG = 0.7152, WB = 0.0722;
+const r3 = (v) => Math.round(v * 1000) / 1000;
 
 /* Perceptual buckets. A 4-bit-per-channel histogram is 4096 entries: fine
    enough to separate a lime from a green, coarse enough that JPEG noise in a
@@ -102,13 +106,13 @@ function describe(rgb, w, h, { stride = w * 3, offset = 0 } = {}) {
   const q = (p) => sorted[Math.min(n - 1, Math.max(0, Math.round(p * (n - 1))))];
   let sum = 0;
   for (let i = 0; i < n; i++) sum += lums[i];
-  const mean = sum / n;
+  const mean = sum / n / 255;
   const meanRgb = [sr / n, sg / n, sb / n];
 
   // Saturation 0–1, from mean chroma against mean luma (the cheap version —
   // no per-pixel HSV pass).
   const chroma = (Math.max(...meanRgb) - Math.min(...meanRgb)) / 255;
-  const lum01 = mean / 255;
+  const lum01 = mean;
   const saturation = lum01 < 0.005 ? 0 : Math.min(1, chroma / (lum01 * 2));
 
   /* "Texture": the mean absolute luma step between horizontally adjacent
@@ -161,11 +165,11 @@ function describe(rgb, w, h, { stride = w * 3, offset = 0 } = {}) {
     c.name = nameColor(c.rgb[0], c.rgb[1], c.rgb[2]);
   }
 
-  const l = mean / 255;
+  const l = mean;
   return {
     luma: {
-      min: Math.round(q(0)), p1: Math.round(q(0.01)), median: Math.round(q(0.5)),
-      mean: Math.round(l * 1000) / 1000, p99: Math.round(q(0.99)), max: Math.round(q(1)),
+      min: r3(q(0) / 255), p1: r3(q(0.01) / 255), median: r3(q(0.5) / 255),
+      mean: r3(l), p99: r3(q(0.99) / 255), max: r3(q(1) / 255),
     },
     brightness: l < 0.12 ? "very dark" : l < 0.35 ? "dark" : l < 0.65 ? "mid" : l < 0.85 ? "bright" : "very bright",
     colours: shown,

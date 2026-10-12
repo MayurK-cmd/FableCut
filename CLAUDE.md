@@ -1474,7 +1474,9 @@ Each answer leads with a text line naming the source, the timestamp(s) and (in
 timeline mode) the clips on screen, so you always know what you are looking at.
 `width` sets the pixel width (default 768 for one frame, 320 per contact-sheet
 cell); `text:true` returns descriptive statistics instead of an image block, for
-agents without vision capability; `where`/`timeout` apply to timeline mode only.
+agents without vision capability — luma levels (min, p1, median, mean, p99, max,
+all 0–1 like `fablecut_scopes`), dominant colors, texture, saturation and
+per-cell motion; `where`/`timeout` apply to timeline mode only.
 
 The REST endpoint `/api/frame` accepts `src`, `t`, `frames`, `from`, `to`, `w`,
 `q` (JPEG quality 1–31) and `text=1` (statistics mode) as query parameters.
