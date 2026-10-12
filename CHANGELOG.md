@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Agents can look at the footage.** `fablecut_frame` (MCP) and `GET /api/frame`
+  return a source frame, a contact sheet of evenly spaced frames, or the
+  composed timeline frame at a time, as a JPEG with a text line naming the
+  source, timestamps and clips on screen. `text:true` returns statistics
+  instead (luma levels on 0–1, dominant colours, texture, saturation and
+  per-cell motion) for agents without vision. Reading a local file by `path=`
+  requires the `X-FableCut-Client` header.
+
 ## [1.14.0] - 2026-10-12
 
 ### Added
@@ -69,6 +78,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Agents: `setShape`, `removeShape` and `setParent` patch ops; `props.shapes`
   and `parent` are validated on `addClip` / `updateClip`; the compact view
   lists shapes and parents. A `motion-graphics` skill covers the recipes.
+- **Agents can see, not just measure.** `fablecut_analyze_reference` gave
+  agents the *ears* of a reference edit (cuts, beats, BPM, energy, drop).
+  `fablecut_frame` gives them the *eyes* — it answers with a real image the
+  model can look at, instead of a number to infer from.
+  - `{path, t}` returns that exact frame of a source clip;
+    `{path, frames:12}` returns an **N-up contact sheet** across the clip in
+    one call (`from`/`to` to survey part of it), the cheap way to see what a
+    whole take holds. `{time}` with no `path` renders the **composed timeline**
+    through the editor's own compositor — graded, all tracks, identical to
+    export — so "is this grade right?" gets a visual answer.
+  - Every answer leads with a text line naming the source, the timestamp(s) and
+    what is on screen, so an agent always knows what it is looking at.
+  - `GET /api/frame?src=…&t=…[&w=][&q=][&frames=][&cols=][&from=][&to=]` is the
+    same thing over REST. Grabs are cached under `analysis/frames/` keyed by
+    source path, size and mtime, so a repeated request is free and an
+    overwritten file never serves a stale frame. Needs ffmpeg on PATH for the
+    source modes.
+  - The MCP layer now answers with content blocks rather than a bare string,
+    which is what lets a tool return an image at all.
 
 ### Changed
 - The Keyboard shortcuts dialog is grouped into sections (Playback, Editing,

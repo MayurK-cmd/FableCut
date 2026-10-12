@@ -109,6 +109,11 @@ const PAGES = [
     parts: [["Remake a reference video", "*"]],
   },
   {
+    slug: "frames", nav: "Look at the footage", title: "Look at the footage", group: "Guides",
+    lede: "Show an agent what the footage holds: one frame, a contact sheet across a clip, or the composed timeline — as an image, or as text-only measurements for models without vision.",
+    parts: [["Look at the footage", "*"]],
+  },
+  {
     slug: "rest-api", nav: "REST API", title: "REST API", group: "Reference",
     lede: "The HTTP endpoints behind the editor, for scripts and tools that don't speak MCP.",
     parts: [["REST API", "*"]],
