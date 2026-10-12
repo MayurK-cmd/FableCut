@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- **Agents can look at the footage.** `fablecut_frame` (MCP) and `GET /api/frame`
+  return a source frame, a contact sheet of evenly spaced frames, or the
+  composed timeline frame at a time, as a JPEG with a text line naming the
+  source, timestamps and clips on screen. `text:true` returns statistics
+  instead (luma levels on 0–1, dominant colours, texture, saturation and
+  per-cell motion) for agents without vision. Reading a local file by `path=`
+  requires the `X-FableCut-Client` header.
+
 ## [1.14.0] - 2026-10-12
 
 ### Added
